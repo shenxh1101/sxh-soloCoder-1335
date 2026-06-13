@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D 程序化城市生成器</title>
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+  <div id="app">
+    <canvas id="city-canvas"></canvas>
+    
+    <div id="ui-panel">
+      <div class="panel-header">
+        <h2>🏙️ 城市生成器</h2>
+        <button id="toggle-panel" class="btn-icon">—</button>
+      </div>
+      
+      <div class="panel-content">
+        <div class="section">
+          <h3>📐 基础参数</h3>
+          <div class="control">
+            <label>地图大小: <span id="map-size-value">200</span></label>
+            <input type="range" id="map-size" min="100" max="500" step="10" value="200">
+          </div>
+          <div class="control">
+            <label>建筑密度: <span id="density-value">0.7</span></label>
+            <input type="range" id="density" min="0.2" max="1" step="0.05" value="0.7">
+          </div>
+          <div class="control">
+            <label>水域比例: <span id="water-ratio-value">0.1</span></label>
+            <input type="range" id="water-ratio" min="0" max="0.4" step="0.02" value="0.1">
+          </div>
+        </div>
+        
+        <div class="section">
+          <h3>🛣️ 道路网格</h3>
+          <div class="control">
+            <label>网格类型</label>
+            <select id="road-type">
+              <option value="grid">网格状</option>
+              <option value="radial">放射状</option>
+              <option value="organic">有机曲线</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="section">
+          <h3>🏢 建筑参数</h3>
+          <div class="control">
+            <label>最小高度: <span id="min-height-value">10</span></label>
+            <input type="range" id="min-height" min="5" max="50" step="1" value="10">
+          </div>
+          <div class="control">
+            <label>最大高度: <span id="max-height-value">80</span></label>
+            <input type="range" id="max-height" min="20" max="200" step="5" value="80">
+          </div>
+        </div>
+        
+        <div class="section">
+          <h3>☀️ 时间系统</h3>
+          <div class="control">
+            <label>时间: <span id="time-value">12:00</span></label>
+            <input type="range" id="time-of-day" min="0" max="24" step="0.1" value="12">
+          </div>
+        </div>
+        
+        <div class="section">
+          <h3>🎥 相机模式</h3>
+          <div class="control">
+            <label>模式</label>
+            <select id="camera-mode">
+              <option value="overview">俯瞰全景</option>
+              <option value="street">街道漫游</option>
+              <option value="flight">飞行模式</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="section button-group">
+          <button id="regenerate" class="btn btn-primary">🔄 重新生成</button>
+          <button id="export-image" class="btn btn-secondary">📷 导出截图</button>
+          <button id="export-json" class="btn btn-secondary">📄 导出 JSON</button>
+        </div>
+        
+        <div class="section stats">
+          <div>FPS: <span id="fps">0</span></div>
+          <div>建筑数: <span id="building-count">0</span></div>
+        </div>
+      </div>
+    </div>
+    
+    <div id="loading" class="loading-overlay hidden">
+      <div class="loading-content">
+        <div class="spinner"></div>
+        <p>正在生成城市...</p>
+      </div>
+    </div>
+  </div>
+  
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
