@@ -49,14 +49,27 @@ class ZoneEditor {
     this.commercialRadius = params.commercialRadius !== undefined ? params.commercialRadius : 0.3;
     this.industrialAngle = params.industrialAngle !== undefined ? params.industrialAngle : Math.PI;
     
-    this.applyPreset(this.preset);
+    this.zonePainter = null;
+    this.usePainter = false;
+    
+    if (this.preset !== 'paint') {
+      this.applyPreset(this.preset);
+    }
+  }
+  
+  setZonePainter(painter) {
+    this.zonePainter = painter;
+  }
+  
+  setUsePainter(use) {
+    this.usePainter = use;
   }
   
   applyPreset(presetName) {
     const preset = ZONE_PRESETS[presetName] || ZONE_PRESETS.auto;
     this.preset = presetName;
     
-    if (presetName === 'auto') return;
+    if (presetName === 'auto' || presetName === 'paint') return;
     
     this.commercialCenterX = preset.commercialCenter.x * this.halfMap;
     this.commercialCenterZ = preset.commercialCenter.z * this.halfMap;
@@ -78,6 +91,11 @@ class ZoneEditor {
   }
   
   getZoneAt(x, z, noise = 0) {
+    if (this.usePainter && this.zonePainter && this.zonePainter.hasPaintData()) {
+      const paintedZone = this.zonePainter.getZoneAt(x, z, null);
+      if (paintedZone) return paintedZone;
+    }
+    
     const dx = x - this.commercialCenterX;
     const dz = z - this.commercialCenterZ;
     const distToCommercial = Math.sqrt(dx * dx + dz * dz);
@@ -88,12 +106,9 @@ class ZoneEditor {
       (x - indX) * (x - indX) + (z - indZ) * (z - indZ)
     );
     
-    const normalizedDistToCommercial = distToCommercial / this.halfMap;
-    const normalizedDistToIndustrial = distToIndustrial / this.halfMap;
-    
     const commercialScore = clamp(1 - distToCommercial / Math.max(10, this.commercialRadius), 0, 1);
+    const normalizedDistToIndustrial = distToIndustrial / this.halfMap;
     const industrialScore = clamp(1 - normalizedDistToIndustrial * 1.5 + noise * 0.3, 0, 1);
-    const residentialScore = 1 - Math.max(commercialScore, industrialScore) * 0.8;
     
     let zone = 'residential';
     const combinedNoise = noise + (this.preset === 'auto' ? 0 : 0.1);
@@ -160,7 +175,8 @@ class ZoneEditor {
       commercialCenterX: this.commercialCenterX,
       commercialCenterZ: this.commercialCenterZ,
       commercialRadius: this.commercialRadius,
-      industrialAngle: this.industrialAngle
+      industrialAngle: this.industrialAngle,
+      usePainter: this.usePainter
     };
   }
   

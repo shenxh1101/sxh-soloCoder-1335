@@ -7,8 +7,11 @@ import { RoadGenerator } from './city/RoadGenerator.js';
 import { BuildingGenerator } from './city/BuildingGenerator.js';
 import { TrafficGenerator } from './city/TrafficGenerator.js';
 import { ZoneEditor } from './city/ZoneEditor.js';
+import { ZonePainter } from './city/ZonePainter.js';
 import { UIController } from './ui/UIController.js';
 import { downloadBlob } from './utils/helpers.js';
+
+const LAST_PRESET_KEY = 'city_generator_last_preset';
 
 class CityApp {
   constructor() {
@@ -17,14 +20,17 @@ class CityApp {
     this.cameraController = new CameraController(this.sceneManager.camera, this.canvas);
     this.timeSystem = new TimeSystem(this.sceneManager);
     this.weatherSystem = new WeatherSystem(this.sceneManager);
-    this.ui = new UIController(this);
+    this.zonePainter = null;
     
     this.zoneEditor = null;
+    this.buildingGen = null;
+    this.trafficGen = null;
     
     this.clock = new THREE.Clock();
     this.fpsFrames = 0;
     this.fpsTime = 0;
     
+    this.ui = new UIController(this);
     this.init();
   }
   
@@ -32,9 +38,15 @@ class CityApp {
     this.cameraController.setMapSize(this.ui.params.mapSize);
     this.timeSystem.setTime(this.ui.params.timeOfDay);
     this.weatherSystem.setWeather(this.ui.params.weather, false);
+    
+    this.zonePainter = new ZonePainter(this.ui.params.mapSize);
+    this.zonePainter.onChange(() => {});
+    
     this.applyWeatherToMaterials();
     this.generateCity();
     this.animate();
+    
+    this.loadLastPreset();
   }
   
   createZoneEditor() {
@@ -46,6 +58,8 @@ class CityApp {
       commercialRadius: params.zoneComRadius,
       industrialAngle: params.zoneIndustrialAngle
     });
+    this.zoneEditor.setZonePainter(this.zonePainter);
+    this.zoneEditor.setUsePainter(params.zonePreset === 'paint');
     return this.zoneEditor;
   }
   
@@ -63,6 +77,10 @@ class CityApp {
         
         if (this.trafficGen) {
           this.trafficGen.dispose();
+        }
+        
+        if (this.zonePainter && params.mapSize !== this.zonePainter.mapSize) {
+          this.zonePainter.setMapSize(params.mapSize);
         }
         
         this.createZoneEditor();
@@ -111,6 +129,10 @@ class CityApp {
         }
         
         this.trafficGen = new TrafficGenerator(params.mapSize);
+        this.trafficGen.setTimeOfDay(params.timeOfDay);
+        this.trafficGen.setNightFactor(this.timeSystem.nightFactor);
+        this.trafficGen.setWeatherBoost(this.weatherSystem.getHeadlightBoost());
+        
         const traffic = this.trafficGen.generate(roadPaths, params.roadType);
         this.sceneManager.cityGroup.add(traffic);
         
@@ -141,6 +163,10 @@ class CityApp {
   
   onTimeOfDayChange(hours) {
     this.timeSystem.setTime(hours);
+    this.ui.params.timeOfDay = hours;
+    if (this.trafficGen) {
+      this.trafficGen.setTimeOfDay(hours);
+    }
     this.applyTimeAndWeather();
   }
   
@@ -171,6 +197,16 @@ class CityApp {
     const buildingMods = this.weatherSystem.getBuildingMaterialModifiers();
     const groundMods = this.weatherSystem.getGroundMaterialModifiers();
     this.buildingGen.setMaterialModifiers(buildingMods, groundMods);
+  }
+  
+  setPaintMode(active) {
+    if (this.zonePainter) {
+      this.zonePainter.setActive(active);
+    }
+  }
+  
+  getZonePainter() {
+    return this.zonePainter;
   }
   
   exportImage() {
@@ -214,11 +250,77 @@ class CityApp {
     };
     
     const data = this.buildingGen.getCityDataJSON(extraMeta);
+    
+    if (this.zonePainter && this.zonePainter.hasPaintData() && params.zonePreset === 'paint') {
+      data.zones.paintData = this.zonePainter.serialize();
+    }
+    
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     downloadBlob(blob, `city-data-${timestamp}.json`);
+  }
+  
+  saveCurrentPreset(name) {
+    if (!name) return null;
+    
+    const params = this.ui.getParams();
+    const preset = {
+      ...params,
+      savedAt: new Date().toISOString()
+    };
+    
+    if (this.zonePainter && this.zonePainter.hasPaintData()) {
+      preset.paintData = this.zonePainter.serialize();
+    }
+    
+    this.saveLastPresetName(name);
+    return preset;
+  }
+  
+  loadPreset(preset) {
+    if (!preset) return;
+    
+    this.ui.loadParamsFromPreset(preset);
+    
+    if (preset.paintData && this.zonePainter) {
+      this.zonePainter.deserialize(preset.paintData);
+    }
+    
+    if (this.weatherSystem && preset.weather) {
+      this.weatherSystem.setWeather(preset.weather, false);
+    }
+    
+    if (this.timeSystem && preset.timeOfDay !== undefined) {
+      this.timeSystem.setTime(preset.timeOfDay);
+    }
+    
+    if (this.cameraController && preset.cameraMode) {
+      this.cameraController.setMode(preset.cameraMode);
+    }
+    
+    this.applyWeatherToMaterials();
+    this.scheduleRegenerate();
+  }
+  
+  scheduleRegenerate() {
+    this.ui.scheduleRegenerate();
+  }
+  
+  saveLastPresetName(name) {
+    try {
+      localStorage.setItem(LAST_PRESET_KEY, name);
+    } catch (e) {}
+  }
+  
+  loadLastPreset() {
+    try {
+      const lastName = localStorage.getItem(LAST_PRESET_KEY);
+      if (lastName && this.ui.presets && this.ui.presets[lastName]) {
+        this.ui.setCurrentPresetName(lastName);
+      }
+    } catch (e) {}
   }
   
   animate() {

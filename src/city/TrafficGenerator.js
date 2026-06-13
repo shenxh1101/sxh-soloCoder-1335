@@ -10,6 +10,7 @@ class TrafficGenerator {
     this.nightFactor = 0;
     this.weatherBoost = 1.0;
     this.roadType = 'grid';
+    this.timeOfDay = 12;
   }
   
   generate(roadPaths, roadType = 'grid') {
@@ -23,11 +24,11 @@ class TrafficGenerator {
     const trafficMultiplier = this.getTrafficMultiplier(roadType);
     const majorVehicleRatio = this.getMajorVehicleRatio(roadType);
     
-    const totalVehicles = Math.min(180, Math.floor(this.mapSize * 0.5 * trafficMultiplier));
+    const totalVehicles = Math.min(200, Math.floor(this.mapSize * 0.55 * trafficMultiplier));
     const majorVehiclesCount = Math.floor(totalVehicles * majorVehicleRatio);
     const minorVehiclesCount = totalVehicles - majorVehiclesCount;
     
-    const numLightVehicles = Math.min(35, Math.floor(this.mapSize * 0.1));
+    const numLightVehicles = Math.min(40, Math.floor(this.mapSize * 0.12));
     
     let vehicleIdx = 0;
     
@@ -90,6 +91,68 @@ class TrafficGenerator {
     }
   }
   
+  getTimeFlowFactor(vehicle) {
+    const t = this.timeOfDay;
+    let flowFactor = 1.0;
+    
+    if (t >= 7 && t < 9) {
+      flowFactor = 1.4;
+    } else if (t >= 17 && t < 19.5) {
+      flowFactor = 1.45;
+    } else if (t >= 11 && t < 14) {
+      flowFactor = 1.15;
+    } else if (t >= 22 || t < 5) {
+      flowFactor = 0.35;
+    } else if (t >= 5 && t < 7) {
+      flowFactor = 0.6;
+    } else if (t >= 19.5 && t < 22) {
+      flowFactor = 0.7;
+    } else if (t >= 9 && t < 11) {
+      flowFactor = 0.95;
+    } else {
+      flowFactor = 0.85;
+    }
+    
+    let majorBonus = 1.0;
+    if (vehicle && vehicle.isMajor) {
+      if (t >= 7 && t < 10) {
+        majorBonus = 1.25;
+      } else if (t >= 17 && t < 20) {
+        majorBonus = 1.3;
+      }
+    }
+    
+    const roadSpeedBoost = this.roadType === 'radial' ? 1.08 : 1.0;
+    
+    return flowFactor * majorBonus * roadSpeedBoost;
+  }
+  
+  getVisibilityFactor(vehicle) {
+    const t = this.timeOfDay;
+    
+    let dayVis = 0.12;
+    let nightVis = 0.85;
+    
+    if (vehicle && vehicle.isMajor) {
+      dayVis = 0.2;
+      nightVis = 1.0;
+    }
+    
+    const dawnDuskFactor = this.getDawnDuskFactor(t);
+    nightVis *= (1 + dawnDuskFactor * 0.3);
+    
+    return { dayVis, nightVis };
+  }
+  
+  getDawnDuskFactor(t) {
+    if (t >= 5.5 && t < 7.5) {
+      return Math.sin(((t - 5.5) / 2) * Math.PI);
+    } else if (t >= 18 && t < 20) {
+      return Math.sin(((t - 18) / 2) * Math.PI);
+    }
+    return 0;
+  }
+  
   createVehicle(roadPath, hasLight = false, isMajorRoad = false) {
     const points = roadPath.points;
     const t = Math.random();
@@ -111,7 +174,7 @@ class TrafficGenerator {
       speedVariance = 0.25;
     }
     
-    const speed = clamp(baseSpeed + (Math.random() - 0.5) * speedVariance, 0.2, 1.4);
+    const speed = clamp(baseSpeed + (Math.random() - 0.5) * speedVariance, 0.15, 1.5);
     const direction = Math.random() > 0.5 ? 1 : -1;
     
     const vehicleType = Math.random();
@@ -177,20 +240,18 @@ class TrafficGenerator {
       headlightColor,
       headlightIntensity,
       hasLight,
-      dayVisibility: randomRange(0.05, 0.15),
-      nightVisibility: randomRange(0.75, 1.0)
+      dayVisibility: isMajorRoad ? 0.2 : 0.1,
+      nightVisibility: isMajorRoad ? 1.0 : 0.75
     };
   }
   
   update(deltaTime) {
-    const timeFlowFactor = this.getTimeFlowFactor();
-    const roadSpeedBoost = this.roadType === 'radial' ? 1.1 : 1.0;
-    
     for (const vehicle of this.vehicles) {
       const points = vehicle.path.points;
       if (points.length < 2) continue;
       
-      const effectiveSpeed = vehicle.speed * timeFlowFactor * roadSpeedBoost;
+      const timeFlowFactor = this.getTimeFlowFactor(vehicle);
+      const effectiveSpeed = vehicle.speed * timeFlowFactor;
       vehicle.pathT += vehicle.direction * effectiveSpeed * deltaTime * 0.18;
       
       if (vehicle.pathT >= 1) {
@@ -241,32 +302,30 @@ class TrafficGenerator {
       vehicle.mesh.rotation.y = vehicle.direction > 0 ? angle : angle + Math.PI;
       vehicle.headlightMesh.rotation.y = vehicle.mesh.rotation.y;
       
+      const { dayVis, nightVis } = this.getVisibilityFactor(vehicle);
+      const headlightBrightness = this.nightFactor * nightVis + (1 - this.nightFactor) * dayVis;
+      const finalBrightness = headlightBrightness * this.weatherBoost;
+      
       const nightIntensity = this.nightFactor * vehicle.headlightIntensity * this.weatherBoost;
-      const dayIntensity = vehicle.dayVisibility * vehicle.headlightIntensity * (1 - this.nightFactor);
-      const totalIntensity = (nightIntensity + dayIntensity) * this.weatherBoost;
+      const dayIntensity = (1 - this.nightFactor) * vehicle.dayVisibility * vehicle.headlightIntensity;
+      const totalIntensity = (nightIntensity + dayIntensity * 0.3) * this.weatherBoost;
       
       if (vehicle.light) {
         vehicle.light.intensity = totalIntensity;
       }
       
-      const headlightBrightness = this.nightFactor * vehicle.nightVisibility + (1 - this.nightFactor) * vehicle.dayVisibility;
-      const finalBrightness = headlightBrightness * this.weatherBoost;
       vehicle.headlightMesh.material.opacity = clamp(finalBrightness, 0.05, 1.0);
       if (vehicle.hasLight) {
         vehicle.headlightMesh.scale.setScalar(1 + finalBrightness * 0.6);
       }
-      vehicle.mesh.material.opacity = (this.nightFactor * 0.5 + (1 - this.nightFactor) * 0.18) * (0.7 + this.weatherBoost * 0.3);
+      
+      const bodyOpacity = (this.nightFactor * 0.45 + (1 - this.nightFactor) * 0.18) * (0.7 + this.weatherBoost * 0.3);
+      vehicle.mesh.material.opacity = bodyOpacity;
     }
   }
   
-  getTimeFlowFactor() {
-    if (this.nightFactor > 0.7) {
-      return 0.55 + this.roadType === 'radial' ? 0.1 : 0;
-    } else if (this.nightFactor < 0.2) {
-      return 1.2;
-    } else {
-      return 0.9 + 0.3 * (0.5 - Math.abs(this.nightFactor - 0.5));
-    }
+  setTimeOfDay(hours) {
+    this.timeOfDay = hours;
   }
   
   setNightFactor(factor) {
@@ -298,7 +357,8 @@ class TrafficGenerator {
     return {
       total: this.vehicles.length,
       major: majorCount,
-      minor: minorCount
+      minor: minorCount,
+      trafficFlow: this.getTimeFlowFactor(null).toFixed(2)
     };
   }
   

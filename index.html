@@ -60,30 +60,62 @@
         <div class="section">
           <h3>🗺️ 分区编辑</h3>
           <div class="control">
-            <label>预设分区模式</label>
+            <label>编辑模式</label>
             <select id="zone-preset">
               <option value="auto">自动分布</option>
               <option value="center-commercial">中心商业区</option>
               <option value="industrial-park">产业园区</option>
               <option value="residential-only">纯住宅区</option>
               <option value="mixed">混合社区</option>
+              <option value="paint">🎨 手绘分区</option>
             </select>
           </div>
-          <div class="control">
-            <label>商业中心X: <span id="zone-com-x-value">0</span>%</label>
-            <input type="range" id="zone-com-x" min="-50" max="50" step="5" value="0">
+          <div class="zone-sliders" id="zone-sliders">
+            <div class="control">
+              <label>商业中心X: <span id="zone-com-x-value">0</span>%</label>
+              <input type="range" id="zone-com-x" min="-50" max="50" step="5" value="0">
+            </div>
+            <div class="control">
+              <label>商业中心Z: <span id="zone-com-z-value">0</span>%</label>
+              <input type="range" id="zone-com-z" min="-50" max="50" step="5" value="0">
+            </div>
+            <div class="control">
+              <label>商业影响半径: <span id="zone-com-radius-value">30</span>%</label>
+              <input type="range" id="zone-com-radius" min="5" max="60" step="5" value="30">
+            </div>
+            <div class="control">
+              <label>工业区方向: <span id="zone-industrial-angle-value">180</span>°</label>
+              <input type="range" id="zone-industrial-angle" min="0" max="360" step="15" value="180">
+            </div>
           </div>
-          <div class="control">
-            <label>商业中心Z: <span id="zone-com-z-value">0</span>%</label>
-            <input type="range" id="zone-com-z" min="-50" max="50" step="5" value="0">
-          </div>
-          <div class="control">
-            <label>商业影响半径: <span id="zone-com-radius-value">30</span>%</label>
-            <input type="range" id="zone-com-radius" min="5" max="60" step="5" value="30">
-          </div>
-          <div class="control">
-            <label>工业区方向: <span id="zone-industrial-angle-value">180</span>°</label>
-            <input type="range" id="zone-industrial-angle" min="0" max="360" step="15" value="180">
+          <div class="zone-paint-tools" id="zone-paint-tools" style="display:none;">
+            <div class="control">
+              <label>画笔工具</label>
+              <div class="button-group horizontal">
+                <button class="btn btn-tertiary active" data-paint-tool="brush">🖌️ 笔刷</button>
+                <button class="btn btn-tertiary" data-paint-tool="rect">⬜ 矩形</button>
+              </div>
+            </div>
+            <div class="control">
+              <label>分区类型</label>
+              <div class="button-group horizontal">
+                <button class="btn btn-zone zone-commercial active" data-paint-zone="commercial">商业</button>
+                <button class="btn btn-zone zone-residential" data-paint-zone="residential">住宅</button>
+                <button class="btn btn-zone zone-industrial" data-paint-zone="industrial">工业</button>
+              </div>
+            </div>
+            <div class="control">
+              <label>笔刷大小: <span id="brush-size-value">25</span></label>
+              <input type="range" id="brush-size" min="10" max="80" step="5" value="25">
+            </div>
+            <div class="button-group horizontal">
+              <button id="apply-zones" class="btn btn-primary">✅ 应用生成</button>
+              <button id="clear-zones" class="btn btn-secondary">🗑️ 清空</button>
+            </div>
+            <div class="paint-hint">
+              <small>💡 点击"开启绘制"在地图上直接画分区</small>
+            </div>
+            <button id="toggle-paint-mode" class="btn btn-secondary btn-block">🎨 开启绘制模式</button>
           </div>
           <div class="zone-colors">
             <span class="zone-tag zone-commercial">商业</span>

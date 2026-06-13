@@ -1,6 +1,7 @@
 import { formatTime, clamp } from '../utils/helpers.js';
 
 const STORAGE_KEY = 'city_generator_presets_v1';
+const LAST_PRESET_KEY = 'city_generator_last_preset';
 
 class UIController {
   constructor(app) {
@@ -23,6 +24,11 @@ class UIController {
     };
     
     this.presets = this.loadPresetsFromStorage();
+    this.currentPresetName = '';
+    this.isPaintModeActive = false;
+    this.paintTool = 'brush';
+    this.paintZone = 'commercial';
+    this.brushSize = 25;
     
     this.regeneratePending = false;
     this.regenerateScheduled = false;
@@ -32,6 +38,7 @@ class UIController {
     this.bindElements();
     this.bindEvents();
     this.refreshPresetList();
+    this.refreshPresetChips();
     this.updateUI();
   }
   
@@ -55,6 +62,9 @@ class UIController {
       maxHeightValue: document.getElementById('max-height-value'),
       
       zonePreset: document.getElementById('zone-preset'),
+      zoneSliders: document.getElementById('zone-sliders'),
+      zonePaintTools: document.getElementById('zone-paint-tools'),
+      
       zoneComX: document.getElementById('zone-com-x'),
       zoneComXValue: document.getElementById('zone-com-x-value'),
       zoneComZ: document.getElementById('zone-com-z'),
@@ -63,6 +73,12 @@ class UIController {
       zoneComRadiusValue: document.getElementById('zone-com-radius-value'),
       zoneIndustrialAngle: document.getElementById('zone-industrial-angle'),
       zoneIndustrialAngleValue: document.getElementById('zone-industrial-angle-value'),
+      
+      brushSize: document.getElementById('brush-size'),
+      brushSizeValue: document.getElementById('brush-size-value'),
+      applyZones: document.getElementById('apply-zones'),
+      clearZones: document.getElementById('clear-zones'),
+      togglePaintMode: document.getElementById('toggle-paint-mode'),
       
       timeOfDay: document.getElementById('time-of-day'),
       timeValue: document.getElementById('time-value'),
@@ -115,8 +131,69 @@ class UIController {
     
     this.elements.zonePreset.addEventListener('change', (e) => {
       this.params.zonePreset = e.target.value;
-      this.applyZonePreset(e.target.value);
+      this.updateZoneEditorVisibility();
+      
+      if (e.target.value !== 'paint') {
+        this.applyZonePreset(e.target.value);
+        this.scheduleRegenerate();
+      }
+    });
+    
+    const paintToolBtns = document.querySelectorAll('[data-paint-tool]');
+    paintToolBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        paintToolBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.paintTool = btn.dataset.paintTool;
+        if (this.app.getZonePainter()) {
+          this.app.getZonePainter().setTool(this.paintTool);
+        }
+      });
+    });
+    
+    const paintZoneBtns = document.querySelectorAll('[data-paint-zone]');
+    paintZoneBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        paintZoneBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.paintZone = btn.dataset.paintZone;
+        if (this.app.getZonePainter()) {
+          this.app.getZonePainter().setZone(this.paintZone);
+        }
+      });
+    });
+    
+    this.elements.brushSize.addEventListener('input', (e) => {
+      this.brushSize = parseInt(e.target.value);
+      this.elements.brushSizeValue.textContent = this.brushSize;
+      if (this.app.getZonePainter()) {
+        this.app.getZonePainter().setBrushSize(this.brushSize);
+      }
+    });
+    
+    this.elements.togglePaintMode.addEventListener('click', () => {
+      this.isPaintModeActive = !this.isPaintModeActive;
+      this.app.setPaintMode(this.isPaintModeActive);
+      this.elements.togglePaintMode.textContent = this.isPaintModeActive ? '❌ 关闭绘制' : '🎨 开启绘制模式';
+      this.elements.togglePaintMode.classList.toggle('btn-primary', this.isPaintModeActive);
+      this.elements.togglePaintMode.classList.toggle('btn-secondary', !this.isPaintModeActive);
+    });
+    
+    this.elements.applyZones.addEventListener('click', () => {
+      if (this.isPaintModeActive) {
+        this.app.setPaintMode(false);
+        this.isPaintModeActive = false;
+        this.elements.togglePaintMode.textContent = '🎨 开启绘制模式';
+        this.elements.togglePaintMode.classList.remove('btn-primary');
+        this.elements.togglePaintMode.classList.add('btn-secondary');
+      }
       this.scheduleRegenerate();
+    });
+    
+    this.elements.clearZones.addEventListener('click', () => {
+      if (this.app.getZonePainter()) {
+        this.app.getZonePainter().clear();
+      }
     });
     
     this.elements.weather.addEventListener('change', (e) => {
@@ -146,6 +223,12 @@ class UIController {
     this.elements.exportJson.addEventListener('click', () => {
       this.app.exportJSON();
     });
+  }
+  
+  updateZoneEditorVisibility() {
+    const isPaint = this.params.zonePreset === 'paint';
+    this.elements.zoneSliders.style.display = isPaint ? 'none' : 'block';
+    this.elements.zonePaintTools.style.display = isPaint ? 'block' : 'none';
   }
   
   applyZonePreset(presetName) {
@@ -183,7 +266,6 @@ class UIController {
       const value = parseInt(e.target.value);
       this.params[paramName] = value;
       valueEl.textContent = formatFn(value);
-      this.params.zonePreset = 'custom';
       this.scheduleRegenerate();
     });
   }
@@ -247,12 +329,6 @@ class UIController {
       
       if (immediate && this.app['on' + paramName.charAt(0).toUpperCase() + paramName.slice(1) + 'Change']) {
         this.app['on' + paramName.charAt(0).toUpperCase() + paramName.slice(1) + 'Change'](this.params[paramName]);
-      }
-    });
-    
-    slider.addEventListener('change', () => {
-      if (!immediate) {
-        this.scheduleRegenerate();
       }
     });
   }
@@ -323,7 +399,37 @@ class UIController {
       const opt = document.createElement('option');
       opt.value = name;
       opt.textContent = name;
+      if (name === this.currentPresetName) {
+        opt.selected = true;
+      }
       list.appendChild(opt);
+    }
+  }
+  
+  refreshPresetChips() {
+    let container = document.getElementById('preset-chips');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'preset-chips';
+      container.className = 'preset-switcher';
+      const section = this.elements.presetList.closest('.section');
+      section.appendChild(container);
+    }
+    
+    container.innerHTML = '';
+    const names = Object.keys(this.presets).sort().slice(0, 8);
+    
+    for (const name of names) {
+      const chip = document.createElement('span');
+      chip.className = 'preset-chip';
+      if (name === this.currentPresetName) {
+        chip.classList.add('active');
+      }
+      chip.textContent = name;
+      chip.addEventListener('click', () => {
+        this.loadPresetByName(name);
+      });
+      container.appendChild(chip);
     }
   }
   
@@ -336,36 +442,41 @@ class UIController {
       return;
     }
     
-    this.presets[name] = {
-      ...this.getParams(),
-      savedAt: new Date().toISOString()
-    };
-    this.savePresetsToStorage();
-    this.refreshPresetList();
-    this.elements.presetList.value = name;
-    nameInput.value = '';
-    nameInput.placeholder = `已保存: ${name}`;
+    const presetData = this.app.saveCurrentPreset(name);
+    if (presetData) {
+      this.presets[name] = presetData;
+      this.savePresetsToStorage();
+      this.currentPresetName = name;
+      this.refreshPresetList();
+      this.refreshPresetChips();
+      this.saveLastPresetName(name);
+      nameInput.value = '';
+      nameInput.placeholder = `已保存: ${name}`;
+    }
   }
   
   loadSelectedPreset() {
     const name = this.elements.presetList.value;
     if (!name || !this.presets[name]) return;
+    this.loadPresetByName(name);
+  }
+  
+  loadPresetByName(name) {
+    if (!this.presets[name]) return;
     
     const preset = this.presets[name];
+    this.currentPresetName = name;
+    
+    this.app.loadPreset(preset);
+    this.saveLastPresetName(name);
+    this.refreshPresetList();
+    this.refreshPresetChips();
+  }
+  
+  loadParamsFromPreset(preset) {
     Object.assign(this.params, preset);
     this.updateUI();
-    
-    if (this.app.onWeatherChange && preset.weather) {
-      this.app.onWeatherChange(preset.weather);
-    }
-    if (this.app.setCameraMode && preset.cameraMode) {
-      this.app.setCameraMode(preset.cameraMode);
-    }
-    if (this.app.onTimeOfDayChange && preset.timeOfDay !== undefined) {
-      this.app.onTimeOfDayChange(preset.timeOfDay);
-    }
-    
-    this.scheduleRegenerate();
+    this.updateZoneEditorVisibility();
   }
   
   deleteSelectedPreset() {
@@ -376,7 +487,36 @@ class UIController {
     
     delete this.presets[name];
     this.savePresetsToStorage();
+    
+    if (this.currentPresetName === name) {
+      this.currentPresetName = '';
+      this.clearLastPresetName();
+    }
+    
     this.refreshPresetList();
+    this.refreshPresetChips();
+  }
+  
+  setCurrentPresetName(name) {
+    this.currentPresetName = name;
+    this.refreshPresetList();
+    this.refreshPresetChips();
+    
+    if (name && this.presets[name]) {
+      this.loadPresetByName(name);
+    }
+  }
+  
+  saveLastPresetName(name) {
+    try {
+      localStorage.setItem(LAST_PRESET_KEY, name);
+    } catch (e) {}
+  }
+  
+  clearLastPresetName() {
+    try {
+      localStorage.removeItem(LAST_PRESET_KEY);
+    } catch (e) {}
   }
   
   updateUI() {
