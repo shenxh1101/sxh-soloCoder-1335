@@ -9,7 +9,7 @@ const ROAD_TYPES = {
 };
 
 class RoadGenerator {
-  constructor(params) {
+  constructor(params, zoneEditor = null) {
     this.mapSize = params.mapSize;
     this.roadType = params.roadType || ROAD_TYPES.GRID;
     this.halfMap = this.mapSize / 2;
@@ -18,6 +18,11 @@ class RoadGenerator {
     this.minorRoadSpacing = 10;
     this.roadWidth = 5;
     this.minorRoadWidth = 3;
+    this.zoneEditor = zoneEditor;
+  }
+  
+  setZoneEditor(zoneEditor) {
+    this.zoneEditor = zoneEditor;
   }
   
   generate() {
@@ -310,15 +315,20 @@ class RoadGenerator {
         const noiseVal = this.noise.fbm(plotX * 0.01, plotZ * 0.01, 4);
         const centerDist = Math.sqrt(plotX * plotX + plotZ * plotZ) / this.halfMap;
         
-        let zone = 'residential';
-        if (centerDist < 0.3 && noiseVal > 0.2) {
-          zone = 'commercial';
-        } else if (centerDist > 0.7 && noiseVal < -0.1) {
-          zone = 'industrial';
-        } else if (noiseVal > 0.3) {
-          zone = 'commercial';
-        } else if (noiseVal < -0.2) {
-          zone = 'industrial';
+        let zone;
+        if (this.zoneEditor) {
+          zone = this.zoneEditor.getZoneAt(plotX, plotZ, noiseVal);
+        } else {
+          zone = 'residential';
+          if (centerDist < 0.3 && noiseVal > 0.2) {
+            zone = 'commercial';
+          } else if (centerDist > 0.7 && noiseVal < -0.1) {
+            zone = 'industrial';
+          } else if (noiseVal > 0.3) {
+            zone = 'commercial';
+          } else if (noiseVal < -0.2) {
+            zone = 'industrial';
+          }
         }
         
         const plotSize = cellSize - this.minorRoadWidth - 1;

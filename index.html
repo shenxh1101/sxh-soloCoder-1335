@@ -58,10 +58,57 @@
         </div>
         
         <div class="section">
+          <h3>🗺️ 分区编辑</h3>
+          <div class="control">
+            <label>预设分区模式</label>
+            <select id="zone-preset">
+              <option value="auto">自动分布</option>
+              <option value="center-commercial">中心商业区</option>
+              <option value="industrial-park">产业园区</option>
+              <option value="residential-only">纯住宅区</option>
+              <option value="mixed">混合社区</option>
+            </select>
+          </div>
+          <div class="control">
+            <label>商业中心X: <span id="zone-com-x-value">0</span>%</label>
+            <input type="range" id="zone-com-x" min="-50" max="50" step="5" value="0">
+          </div>
+          <div class="control">
+            <label>商业中心Z: <span id="zone-com-z-value">0</span>%</label>
+            <input type="range" id="zone-com-z" min="-50" max="50" step="5" value="0">
+          </div>
+          <div class="control">
+            <label>商业影响半径: <span id="zone-com-radius-value">30</span>%</label>
+            <input type="range" id="zone-com-radius" min="5" max="60" step="5" value="30">
+          </div>
+          <div class="control">
+            <label>工业区方向: <span id="zone-industrial-angle-value">180</span>°</label>
+            <input type="range" id="zone-industrial-angle" min="0" max="360" step="15" value="180">
+          </div>
+          <div class="zone-colors">
+            <span class="zone-tag zone-commercial">商业</span>
+            <span class="zone-tag zone-residential">住宅</span>
+            <span class="zone-tag zone-industrial">工业</span>
+          </div>
+        </div>
+        
+        <div class="section">
           <h3>☀️ 时间系统</h3>
           <div class="control">
             <label>时间: <span id="time-value">12:00</span></label>
             <input type="range" id="time-of-day" min="0" max="24" step="0.1" value="12">
+          </div>
+        </div>
+        
+        <div class="section">
+          <h3>🌦️ 天气系统</h3>
+          <div class="control">
+            <label>天气</label>
+            <select id="weather">
+              <option value="sunny">☀️ 晴天</option>
+              <option value="cloudy">☁️ 阴天</option>
+              <option value="rainy">🌧️ 雨夜</option>
+            </select>
           </div>
         </div>
         
@@ -74,6 +121,25 @@
               <option value="street">街道漫游</option>
               <option value="flight">飞行模式</option>
             </select>
+          </div>
+        </div>
+        
+        <div class="section">
+          <h3>💾 方案管理</h3>
+          <div class="control">
+            <label>保存方案</label>
+            <input type="text" id="preset-name" placeholder="方案名称..." maxlength="20">
+          </div>
+          <div class="control">
+            <label>已保存方案</label>
+            <select id="preset-list">
+              <option value="">-- 选择方案 --</option>
+            </select>
+          </div>
+          <div class="button-group horizontal">
+            <button id="save-preset" class="btn btn-secondary">💾 保存</button>
+            <button id="load-preset" class="btn btn-secondary">📂 载入</button>
+            <button id="delete-preset" class="btn btn-secondary">🗑️ 删除</button>
           </div>
         </div>
         

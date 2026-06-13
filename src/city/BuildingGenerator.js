@@ -4,7 +4,7 @@ import { randomRange, randomInt, clamp } from '../utils/helpers.js';
 import { TextureGenerator } from './TextureGenerator.js';
 
 class BuildingGenerator {
-  constructor(params) {
+  constructor(params, zoneEditor = null) {
     this.mapSize = params.mapSize;
     this.halfMap = this.mapSize / 2;
     this.density = params.density;
@@ -16,6 +16,40 @@ class BuildingGenerator {
     this.textureGen = new TextureGenerator(this.seed);
     this.buildingData = [];
     this.streetLights = [];
+    this.zoneEditor = zoneEditor;
+    this.weatherBoost = 1.0;
+    this.groundMaterial = null;
+    this.waterMaterial = null;
+  }
+  
+  setZoneEditor(zoneEditor) {
+    this.zoneEditor = zoneEditor;
+  }
+  
+  setWeatherBoost(boost) {
+    this.weatherBoost = boost;
+  }
+  
+  setMaterialModifiers(buildingMods, groundMods) {
+    if (this.instancedMeshes) {
+      for (const mesh of this.instancedMeshes) {
+        if (mesh.material) {
+          mesh.material.roughness = buildingMods.roughness;
+          mesh.material.metalness = buildingMods.metalness;
+          mesh.material.needsUpdate = true;
+        }
+      }
+    }
+    if (this.groundMaterial) {
+      this.groundMaterial.roughness = groundMods.roughness;
+      this.groundMaterial.metalness = groundMods.metalness;
+      this.groundMaterial.needsUpdate = true;
+    }
+    if (this.waterMaterial) {
+      this.waterMaterial.roughness = Math.max(0.05, groundMods.roughness * 0.5);
+      this.waterMaterial.metalness = Math.max(0.1, groundMods.metalness);
+      this.waterMaterial.needsUpdate = true;
+    }
   }
   
   generate(plots) {
@@ -33,9 +67,10 @@ class BuildingGenerator {
       if (this.isWater(plot.x, plot.z)) continue;
       
       const numBuildings = this.calculateBuildingsPerPlot(plot);
+      const zoneDensityMod = this.zoneEditor ? this.zoneEditor.getDensityModifier(plot.zone) : 1.0;
       
       for (let i = 0; i < numBuildings; i++) {
-        if (Math.random() > this.density) continue;
+        if (Math.random() > this.density * zoneDensityMod) continue;
         
         const offsetX = randomRange(-plot.width * 0.3, plot.width * 0.3);
         const offsetZ = randomRange(-plot.depth * 0.3, plot.depth * 0.3);
@@ -110,8 +145,12 @@ class BuildingGenerator {
     const randomFactor = 0.7 + Math.random() * 0.6;
     
     const range = this.maxHeight - this.minHeight;
-    const relativeHeight = range * heightMultiplier * noiseFactor * randomFactor;
-    const height = this.minHeight + Math.min(relativeHeight, range);
+    let relativeHeight = range * heightMultiplier * noiseFactor * randomFactor;
+    let height = this.minHeight + Math.min(relativeHeight, range);
+    
+    if (this.zoneEditor) {
+      height = this.zoneEditor.getHeightModifier(plot.zone, height);
+    }
     
     return clamp(height, this.minHeight, this.maxHeight);
   }
@@ -316,7 +355,11 @@ class BuildingGenerator {
     if (!this.instancedMeshes) return;
     for (const mesh of this.instancedMeshes) {
       if (mesh.material && mesh.material.emissiveIntensity !== undefined) {
-        mesh.material.emissiveIntensity = intensity;
+        let zoneMod = 1.0;
+        if (this.zoneEditor && mesh.material.userData && mesh.material.userData.zone) {
+          zoneMod = this.zoneEditor.getNightLightModifier(mesh.material.userData.zone);
+        }
+        mesh.material.emissiveIntensity = intensity * zoneMod * this.weatherBoost;
       }
     }
   }
@@ -326,12 +369,12 @@ class BuildingGenerator {
     const pavementTexture = this.textureGen.createPavementTexture();
     
     const groundGeometry = new THREE.PlaneGeometry(this.mapSize * 1.5, this.mapSize * 1.5);
-    const groundMaterial = new THREE.MeshStandardMaterial({
+    this.groundMaterial = new THREE.MeshStandardMaterial({
       map: groundTexture,
       roughness: 0.95,
       metalness: 0.0
     });
-    const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+    const ground = new THREE.Mesh(groundGeometry, this.groundMaterial);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = 0;
     ground.receiveShadow = true;
@@ -345,7 +388,7 @@ class BuildingGenerator {
     const waterTexture = this.textureGen.createWaterTexture();
     
     const waterGeometry = new THREE.PlaneGeometry(this.mapSize * 1.2, this.mapSize * 1.2, 50, 50);
-    const waterMaterial = new THREE.MeshStandardMaterial({
+    this.waterMaterial = new THREE.MeshStandardMaterial({
       map: waterTexture,
       color: 0x1e5799,
       transparent: true,
@@ -354,7 +397,7 @@ class BuildingGenerator {
       metalness: 0.3
     });
     
-    const water = new THREE.Mesh(waterGeometry, waterMaterial);
+    const water = new THREE.Mesh(waterGeometry, this.waterMaterial);
     water.rotation.x = -Math.PI / 2;
     water.position.y = 0.1;
     
@@ -415,7 +458,7 @@ class BuildingGenerator {
   setStreetLightIntensity(intensity) {
     if (!this.lightObjects) return;
     for (const light of this.lightObjects) {
-      light.intensity = intensity * light.userData.baseIntensity;
+      light.intensity = intensity * light.userData.baseIntensity * this.weatherBoost;
     }
   }
   
@@ -423,7 +466,13 @@ class BuildingGenerator {
     return this.buildingData.length;
   }
   
-  getCityDataJSON() {
+  getCityDataJSON(extraMetadata = {}) {
+    const zoneStats = {
+      commercial: this.buildingData.filter(b => b.zone === 'commercial').length,
+      residential: this.buildingData.filter(b => b.zone === 'residential').length,
+      industrial: this.buildingData.filter(b => b.zone === 'industrial').length
+    };
+    
     return {
       metadata: {
         mapSize: this.mapSize,
@@ -434,7 +483,17 @@ class BuildingGenerator {
         seed: this.seed,
         buildingCount: this.buildingData.length,
         streetLightCount: this.streetLights.length,
-        generatedAt: new Date().toISOString()
+        generatedAt: new Date().toISOString(),
+        ...extraMetadata
+      },
+      zones: {
+        stats: zoneStats,
+        percentages: {
+          commercial: this.buildingData.length ? +(zoneStats.commercial / this.buildingData.length * 100).toFixed(1) : 0,
+          residential: this.buildingData.length ? +(zoneStats.residential / this.buildingData.length * 100).toFixed(1) : 0,
+          industrial: this.buildingData.length ? +(zoneStats.industrial / this.buildingData.length * 100).toFixed(1) : 0
+        },
+        editor: this.zoneEditor ? this.zoneEditor.getParams() : null
       },
       buildings: this.buildingData.map(b => ({
         position: { x: b.x, z: b.z },
@@ -445,12 +504,7 @@ class BuildingGenerator {
       streetLights: this.streetLights.map(l => ({
         position: { x: l.x, z: l.z },
         intensity: l.intensity
-      })),
-      zones: {
-        commercial: this.buildingData.filter(b => b.zone === 'commercial').length,
-        residential: this.buildingData.filter(b => b.zone === 'residential').length,
-        industrial: this.buildingData.filter(b => b.zone === 'industrial').length
-      }
+      }))
     };
   }
 }

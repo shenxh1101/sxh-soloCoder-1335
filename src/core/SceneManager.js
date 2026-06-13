@@ -107,9 +107,25 @@ class SceneManager {
     this.renderer.render(this.scene, this.camera);
   }
   
-  getScreenshotDataURL() {
+  getScreenshotDataURL(scale = 2) {
+    const originalSize = {
+      width: this.renderer.domElement.width,
+      height: this.renderer.domElement.height
+    };
+    const originalPixelRatio = this.renderer.getPixelRatio();
+    
+    this.renderer.setPixelRatio(scale);
+    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
     this.renderer.render(this.scene, this.camera);
-    return this.canvas.toDataURL('image/png');
+    
+    const dataURL = this.canvas.toDataURL('image/png');
+    
+    this.renderer.setPixelRatio(originalPixelRatio);
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.domElement.width = originalSize.width;
+    this.renderer.domElement.height = originalSize.height;
+    
+    return dataURL;
   }
   
   dispose() {
