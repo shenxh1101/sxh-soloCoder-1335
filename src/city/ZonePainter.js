@@ -1,7 +1,17 @@
+import * as THREE from 'three';
+
 const ZONE_COLORS = {
   commercial: 'rgba(100, 150, 255, 0.45)',
   residential: 'rgba(140, 200, 140, 0.45)',
-  industrial: 'rgba(212, 165, 116, 0.45)'
+  industrial: 'rgba(212, 165, 116, 0.45)',
+  eraser: 'rgba(255, 255, 255, 0.3)'
+};
+
+const ZONE_NAMES = {
+  commercial: '商业',
+  residential: '住宅',
+  industrial: '工业',
+  eraser: '橡皮擦'
 };
 
 class ZonePainter {
@@ -18,6 +28,10 @@ class ZonePainter {
     
     this.ctx = this.canvas.getContext('2d');
     
+    this.camera = null;
+    this.raycaster = new THREE.Raycaster();
+    this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    
     this.isPainting = false;
     this.isActive = false;
     this.currentTool = 'brush';
@@ -25,13 +39,16 @@ class ZonePainter {
     this.brushSize = 25;
     
     this.rectStart = null;
-    this.tempCanvas = null;
-    this.tempCtx = null;
+    this.rectCurrent = null;
     
     this.zoneData = null;
     this.dataWidth = 0;
     this.dataHeight = 0;
     this.dataResolution = 2;
+    
+    this.history = [];
+    this.historyIndex = -1;
+    this.maxHistory = 20;
     
     this.onChangeCallback = null;
     
@@ -40,10 +57,15 @@ class ZonePainter {
     this.bindEvents();
   }
   
+  setCamera(camera) {
+    this.camera = camera;
+  }
+  
   setMapSize(mapSize) {
     this.mapSize = mapSize;
     this.halfMap = mapSize / 2;
     this.initZoneData();
+    this.clearHistory();
     this.render();
   }
   
@@ -73,7 +95,7 @@ class ZonePainter {
     this.canvas.addEventListener('touchstart', (e) => {
       e.preventDefault();
       const touch = e.touches[0];
-      this.onMouseDown({ clientX: touch.clientX, clientY: touch.clientY });
+      this.onMouseDown({ clientX: touch.clientX, clientY: touch.clientY, button: 0 });
     });
     this.canvas.addEventListener('touchmove', (e) => {
       e.preventDefault();
@@ -106,25 +128,101 @@ class ZonePainter {
   }
   
   clear() {
+    this.saveHistory();
     this.initZoneData();
     this.render();
     if (this.onChangeCallback) this.onChangeCallback();
   }
   
-  screenToWorld(x, y) {
-    const canvasRect = this.canvas.getBoundingClientRect();
-    const sx = x - canvasRect.left;
-    const sy = y - canvasRect.top;
+  undo() {
+    if (this.historyIndex <= 0) return false;
+    this.historyIndex--;
+    this.zoneData = new Uint8Array(this.history[this.historyIndex]);
+    this.render();
+    if (this.onChangeCallback) this.onChangeCallback();
+    return true;
+  }
+  
+  redo() {
+    if (this.historyIndex >= this.history.length - 1) return false;
+    this.historyIndex++;
+    this.zoneData = new Uint8Array(this.history[this.historyIndex]);
+    this.render();
+    if (this.onChangeCallback) this.onChangeCallback();
+    return true;
+  }
+  
+  saveHistory() {
+    const snapshot = new Uint8Array(this.zoneData);
+    if (this.historyIndex < this.history.length - 1) {
+      this.history = this.history.slice(0, this.historyIndex + 1);
+    }
+    this.history.push(snapshot);
+    if (this.history.length > this.maxHistory) {
+      this.history.shift();
+    } else {
+      this.historyIndex++;
+    }
+  }
+  
+  clearHistory() {
+    this.history = [];
+    this.historyIndex = -1;
+    this.saveHistory();
+  }
+  
+  canUndo() {
+    return this.historyIndex > 0;
+  }
+  
+  canRedo() {
+    return this.historyIndex < this.history.length - 1;
+  }
+  
+  screenToWorld(sx, sy) {
+    if (!this.camera) {
+      const canvasRect = this.canvas.getBoundingClientRect();
+      const x = sx - canvasRect.left;
+      const y = sy - canvasRect.top;
+      const centerX = canvasRect.width / 2;
+      const centerY = canvasRect.height / 2;
+      const scale = Math.min(canvasRect.width, canvasRect.height) / (this.mapSize * 1.2);
+      return { x: (x - centerX) / scale, z: (y - centerY) / scale };
+    }
     
-    const centerX = canvasRect.width / 2;
-    const centerY = canvasRect.height / 2;
+    const rect = this.canvas.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+      ((sx - rect.left) / rect.width) * 2 - 1,
+      -((sy - rect.top) / rect.height) * 2 + 1
+    );
     
-    const scale = Math.min(canvasRect.width, canvasRect.height) / (this.mapSize * 1.2);
+    this.raycaster.setFromCamera(mouse, this.camera);
+    const intersect = new THREE.Vector3();
+    this.raycaster.ray.intersectPlane(this.groundPlane, intersect);
     
-    const wx = (sx - centerX) / scale;
-    const wz = (sy - centerY) / scale;
+    if (intersect) {
+      return { x: intersect.x, z: intersect.z };
+    }
+    return null;
+  }
+  
+  worldToScreen(wx, wz) {
+    if (!this.camera) {
+      const canvasRect = this.canvas.getBoundingClientRect();
+      const scale = Math.min(canvasRect.width, canvasRect.height) / (this.mapSize * 1.2);
+      const centerX = canvasRect.width / 2;
+      const centerY = canvasRect.height / 2;
+      return { x: centerX + wx * scale, y: centerY + wz * scale };
+    }
     
-    return { x: wx, z: wz };
+    const vector = new THREE.Vector3(wx, 0, wz);
+    vector.project(this.camera);
+    
+    const rect = this.canvas.getBoundingClientRect();
+    return {
+      x: (vector.x + 1) / 2 * rect.width,
+      y: (-vector.y + 1) / 2 * rect.height
+    };
   }
   
   worldToData(wx, wz) {
@@ -135,14 +233,19 @@ class ZonePainter {
   
   onMouseDown(e) {
     if (!this.isActive) return;
-    this.isPainting = true;
+    if (e.button !== undefined && e.button !== 0) return;
     
     const world = this.screenToWorld(e.clientX, e.clientY);
+    if (!world) return;
     
-    if (this.currentTool === 'brush') {
+    this.isPainting = true;
+    this.saveHistory();
+    
+    if (this.currentTool === 'brush' || this.currentTool === 'eraser') {
       this.paintBrush(world.x, world.z);
     } else if (this.currentTool === 'rect') {
       this.rectStart = world;
+      this.rectCurrent = world;
     }
   }
   
@@ -150,10 +253,12 @@ class ZonePainter {
     if (!this.isActive || !this.isPainting) return;
     
     const world = this.screenToWorld(e.clientX, e.clientY);
+    if (!world) return;
     
-    if (this.currentTool === 'brush') {
+    if (this.currentTool === 'brush' || this.currentTool === 'eraser') {
       this.paintBrush(world.x, world.z);
     } else if (this.currentTool === 'rect' && this.rectStart) {
+      this.rectCurrent = world;
       this.render();
       this.drawRectPreview(this.rectStart, world);
     }
@@ -163,9 +268,12 @@ class ZonePainter {
     if (!this.isActive) return;
     
     if (this.currentTool === 'rect' && this.rectStart) {
-      const world = this.screenToWorld(e.clientX, e.clientY);
-      this.paintRect(this.rectStart, world);
+      const world = this.rectCurrent || this.screenToWorld(e.clientX, e.clientY);
+      if (world) {
+        this.paintRect(this.rectStart, world);
+      }
       this.rectStart = null;
+      this.rectCurrent = null;
     }
     
     this.isPainting = false;
@@ -176,7 +284,8 @@ class ZonePainter {
     const radiusData = Math.floor(this.brushSize / this.dataResolution);
     const center = this.worldToData(wx, wz);
     
-    const zoneIdx = this.zoneToIndex(this.currentZone);
+    const isErase = this.currentTool === 'eraser' || this.currentZone === 'eraser';
+    const zoneIdx = isErase ? 0 : this.zoneToIndex(this.currentZone);
     
     for (let dz = -radiusData; dz <= radiusData; dz++) {
       for (let dx = -radiusData; dx <= radiusData; dx++) {
@@ -186,7 +295,7 @@ class ZonePainter {
           const iz = center.dz + dz;
           if (ix >= 0 && ix < this.dataWidth && iz >= 0 && iz < this.dataHeight) {
             const idx = iz * this.dataWidth + ix;
-            if (dist <= radiusData * 0.7 || Math.random() > 0.3) {
+            if (isErase || dist <= radiusData * 0.7 || Math.random() > 0.3) {
               this.zoneData[idx] = zoneIdx;
             }
           }
@@ -206,7 +315,8 @@ class ZonePainter {
     const startData = this.worldToData(minX, minZ);
     const endData = this.worldToData(maxX, maxZ);
     
-    const zoneIdx = this.zoneToIndex(this.currentZone);
+    const isErase = this.currentZone === 'eraser';
+    const zoneIdx = isErase ? 0 : this.zoneToIndex(this.currentZone);
     
     for (let iz = startData.dz; iz <= endData.dz; iz++) {
       for (let ix = startData.dx; ix <= endData.dx; ix++) {
@@ -220,34 +330,22 @@ class ZonePainter {
   }
   
   drawRectPreview(start, end) {
-    const canvasRect = this.canvas.getBoundingClientRect();
-    const scale = Math.min(canvasRect.width, canvasRect.height) / (this.mapSize * 1.2);
-    const centerX = canvasRect.width / 2;
-    const centerY = canvasRect.height / 2;
+    const p1 = this.worldToScreen(start.x, start.z);
+    const p2 = this.worldToScreen(end.x, end.z);
     
-    const sx1 = centerX + start.x * scale;
-    const sy1 = centerY + start.z * scale;
-    const sx2 = centerX + end.x * scale;
-    const sy2 = centerY + end.z * scale;
-    
-    this.ctx.fillStyle = ZONE_COLORS[this.currentZone];
-    this.ctx.strokeStyle = ZONE_COLORS[this.currentZone].replace('0.45', '0.9');
+    const colorKey = this.currentZone === 'eraser' ? 'eraser' : this.currentZone;
+    this.ctx.fillStyle = ZONE_COLORS[colorKey] || 'rgba(255,255,255,0.3)';
+    this.ctx.strokeStyle = (ZONE_COLORS[colorKey] || 'rgba(255,255,255,0.3)').replace('0.45', '0.9').replace('0.3', '0.8');
     this.ctx.lineWidth = 2;
     this.ctx.setLineDash([5, 5]);
     
-    this.ctx.fillRect(
-      Math.min(sx1, sx2),
-      Math.min(sy1, sy2),
-      Math.abs(sx2 - sx1),
-      Math.abs(sy2 - sy1)
-    );
-    this.ctx.strokeRect(
-      Math.min(sx1, sx2),
-      Math.min(sy1, sy2),
-      Math.abs(sx2 - sx1),
-      Math.abs(sy2 - sy1)
-    );
+    const x = Math.min(p1.x, p2.x);
+    const y = Math.min(p1.y, p2.y);
+    const w = Math.abs(p2.x - p1.x);
+    const h = Math.abs(p2.y - p1.y);
     
+    this.ctx.fillRect(x, y, w, h);
+    this.ctx.strokeRect(x, y, w, h);
     this.ctx.setLineDash([]);
   }
   
@@ -287,13 +385,11 @@ class ZonePainter {
   
   render() {
     const ctx = this.ctx;
-    const canvasRect = this.canvas.getBoundingClientRect();
+    const rect = this.canvas.getBoundingClientRect();
     
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     
-    const scale = Math.min(canvasRect.width, canvasRect.height) / (this.mapSize * 1.2);
-    const centerX = canvasRect.width / 2;
-    const centerY = canvasRect.height / 2;
+    if (!this.isActive) return;
     
     const step = 2;
     
@@ -307,40 +403,69 @@ class ZonePainter {
         const wx = ix * this.dataResolution - this.halfMap;
         const wz = iz * this.dataResolution - this.halfMap;
         
-        const sx = centerX + wx * scale;
-        const sy = centerY + wz * scale;
+        const screen = this.worldToScreen(wx, wz);
+        const nextScreen = this.worldToScreen(
+          wx + step * this.dataResolution,
+          wz + step * this.dataResolution
+        );
+        
+        const cellW = Math.abs(nextScreen.x - screen.x);
+        const cellH = Math.abs(nextScreen.y - screen.y);
         
         ctx.fillStyle = ZONE_COLORS[zone];
         ctx.fillRect(
-          sx - step * this.dataResolution * scale / 2,
-          sy - step * this.dataResolution * scale / 2,
-          step * this.dataResolution * scale + 1,
-          step * this.dataResolution * scale + 1
+          screen.x - cellW / 2,
+          screen.y - cellH / 2,
+          cellW + 1,
+          cellH + 1
         );
       }
     }
     
-    const mapLeft = centerX - this.halfMap * scale;
-    const mapTop = centerY - this.halfMap * scale;
-    const mapSize = this.mapSize * scale;
+    this.drawMapBorder();
+  }
+  
+  drawMapBorder() {
+    const ctx = this.ctx;
+    const corners = [
+      { x: -this.halfMap, z: -this.halfMap },
+      { x: this.halfMap, z: -this.halfMap },
+      { x: this.halfMap, z: this.halfMap },
+      { x: -this.halfMap, z: this.halfMap }
+    ];
     
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(mapLeft, mapTop, mapSize, mapSize);
+    const screenCorners = corners.map(c => this.worldToScreen(c.x, c.z));
     
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(screenCorners[0].x, screenCorners[0].y);
+    for (let i = 1; i < screenCorners.length; i++) {
+      ctx.lineTo(screenCorners[i].x, screenCorners[i].y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
     ctx.lineWidth = 0.5;
     const gridCount = 10;
-    const gridStep = mapSize / gridCount;
     for (let i = 1; i < gridCount; i++) {
+      const t = i / gridCount;
+      const wx = -this.halfMap + this.mapSize * t;
+      const wz = -this.halfMap + this.mapSize * t;
+      
+      const p1 = this.worldToScreen(wx, -this.halfMap);
+      const p2 = this.worldToScreen(wx, this.halfMap);
       ctx.beginPath();
-      ctx.moveTo(mapLeft + i * gridStep, mapTop);
-      ctx.lineTo(mapLeft + i * gridStep, mapTop + mapSize);
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
       ctx.stroke();
       
+      const p3 = this.worldToScreen(-this.halfMap, wz);
+      const p4 = this.worldToScreen(this.halfMap, wz);
       ctx.beginPath();
-      ctx.moveTo(mapLeft, mapTop + i * gridStep);
-      ctx.lineTo(mapLeft + mapSize, mapTop + i * gridStep);
+      ctx.moveTo(p3.x, p3.y);
+      ctx.lineTo(p4.x, p4.y);
       ctx.stroke();
     }
   }
@@ -366,10 +491,11 @@ class ZonePainter {
     this.dataWidth = data.dataWidth;
     this.dataHeight = data.dataHeight;
     this.zoneData = new Uint8Array(data.zoneData);
+    this.clearHistory();
     this.render();
     
     if (this.onChangeCallback) this.onChangeCallback();
   }
 }
 
-export { ZonePainter, ZONE_COLORS };
+export { ZonePainter, ZONE_COLORS, ZONE_NAMES };

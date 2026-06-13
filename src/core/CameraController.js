@@ -38,6 +38,14 @@ class CameraController {
     this.flightSpeed = 150;
     this.flightHeight = 100;
     
+    this.autoFollow = false;
+    this.autoFollowPath = null;
+    this.autoFollowProgress = 0;
+    this.autoFollowSpeed = 30;
+    this.autoFollowLookAhead = 8;
+    
+    this.roadPaths = [];
+    
     this.mouseDownHandler = this.onMouseDown.bind(this);
     this.mouseMoveHandler = this.onMouseMove.bind(this);
     this.mouseUpHandler = this.onMouseUp.bind(this);
@@ -179,8 +187,103 @@ class CameraController {
     this.keys[e.code] = false;
   }
   
+  setRoadPaths(roadPaths) {
+    this.roadPaths = roadPaths || [];
+  }
+  
+  setAutoFollow(enabled) {
+    if (enabled && this.roadPaths.length > 0) {
+      this.autoFollow = true;
+      this.selectBestRoad();
+      this.autoFollowProgress = 0;
+    } else {
+      this.autoFollow = false;
+      this.autoFollowPath = null;
+    }
+  }
+  
+  setAutoFollowSpeed(speed) {
+    this.autoFollowSpeed = speed;
+  }
+  
+  selectBestRoad() {
+    const majorRoads = this.roadPaths.filter(p => p.isMajor || p.level === 'major');
+    const candidates = majorRoads.length > 0 ? majorRoads : this.roadPaths;
+    
+    let bestPath = null;
+    let bestLength = 0;
+    
+    for (const path of candidates) {
+      const length = this.calculatePathLength(path.points);
+      if (length > bestLength) {
+        bestLength = length;
+        bestPath = path;
+      }
+    }
+    
+    this.autoFollowPath = bestPath;
+    this.autoFollowPathLength = bestLength || 0;
+  }
+  
+  calculatePathLength(points) {
+    let length = 0;
+    for (let i = 1; i < points.length; i++) {
+      const dx = points[i].x - points[i-1].x;
+      const dz = points[i].z - points[i-1].z;
+      length += Math.sqrt(dx * dx + dz * dz);
+    }
+    return length;
+  }
+  
+  getPointOnPath(distance) {
+    if (!this.autoFollowPath) return null;
+    const points = this.autoFollowPath.points;
+    
+    let accumulated = 0;
+    for (let i = 1; i < points.length; i++) {
+      const dx = points[i].x - points[i-1].x;
+      const dz = points[i].z - points[i-1].z;
+      const segLength = Math.sqrt(dx * dx + dz * dz);
+      
+      if (accumulated + segLength >= distance) {
+        const t = (distance - accumulated) / segLength;
+        return {
+          x: points[i-1].x + dx * t,
+          z: points[i-1].z + dz * t
+        };
+      }
+      accumulated += segLength;
+    }
+    
+    return { ...points[points.length - 1] };
+  }
+  
   update(deltaTime) {
     if (this.mode === CAMERA_MODES.OVERVIEW) return;
+    
+    if (this.autoFollow && this.autoFollowPath && this.mode === CAMERA_MODES.STREET) {
+      this.autoFollowProgress += this.autoFollowSpeed * deltaTime;
+      
+      if (this.autoFollowProgress >= this.autoFollowPathLength) {
+        this.autoFollowProgress = 0;
+      }
+      
+      const pos = this.getPointOnPath(this.autoFollowProgress);
+      const lookAheadDist = Math.min(
+        this.autoFollowLookAhead,
+        this.autoFollowPathLength - this.autoFollowProgress - 0.1
+      );
+      const lookPos = this.getPointOnPath(this.autoFollowProgress + Math.max(1, lookAheadDist));
+      
+      if (pos && lookPos) {
+        this.camera.position.set(pos.x, this.streetHeight, pos.z);
+        
+        const lookTarget = new THREE.Vector3(lookPos.x, this.streetHeight, lookPos.z);
+        this.camera.lookAt(lookTarget);
+      }
+      
+      return;
+    }
     
     const speed = (this.mode === CAMERA_MODES.FLIGHT ? this.flightSpeed : this.moveSpeed) * deltaTime;
     const direction = new THREE.Vector3();

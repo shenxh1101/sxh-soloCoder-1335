@@ -35,6 +35,23 @@ const WEATHER_PRESETS = {
     headlightBoost: 1.2,
     toneMappingExposure: 0.95
   },
+  foggy: {
+    name: '雾天',
+    skyColor: 0xc8c8d0,
+    fogColor: 0xd0d0d8,
+    fogDensity: 0.0085,
+    ambientIntensity: 0.5,
+    sunIntensity: 0.25,
+    sunColor: 0xe0e0e8,
+    hemisphereIntensity: 0.4,
+    groundRoughness: 0.9,
+    groundMetalness: 0.01,
+    buildingRoughness: 0.78,
+    buildingMetalness: 0.05,
+    lightBoost: 1.15,
+    headlightBoost: 1.4,
+    toneMappingExposure: 0.9
+  },
   rainy: {
     name: '雨夜',
     skyColor: 0x1a1a2e,
@@ -52,6 +69,17 @@ const WEATHER_PRESETS = {
     headlightBoost: 2.0,
     toneMappingExposure: 0.7
   }
+};
+
+const ATMOSPHERE_PRESETS = {
+  'sunny-noon': { name: '☀️ 晴朗正午', weather: 'sunny', time: 12 },
+  'sunny-sunset': { name: '🌇 晴天日落', weather: 'sunny', time: 18.5 },
+  'sunny-night': { name: '🌙 晴夜', weather: 'sunny', time: 22 },
+  'cloudy-morning': { name: '☁️ 阴天上午', weather: 'cloudy', time: 10 },
+  'cloudy-dusk': { name: '🌆 阴天傍晚', weather: 'cloudy', time: 19.5 },
+  'foggy-dawn': { name: '🌫️ 雾色清晨', weather: 'foggy', time: 6.5 },
+  'foggy-day': { name: '🌁 浓雾白昼', weather: 'foggy', time: 11 },
+  'rainy-night': { name: '🌧️ 雨夜', weather: 'rainy', time: 21.5 }
 };
 
 class WeatherSystem {
@@ -206,4 +234,4 @@ class WeatherSystem {
   }
 }
 
-export { WeatherSystem, WEATHER_PRESETS };
+export { WeatherSystem, WEATHER_PRESETS, ATMOSPHERE_PRESETS };

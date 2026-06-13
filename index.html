@@ -93,6 +93,7 @@
               <label>画笔工具</label>
               <div class="button-group horizontal">
                 <button class="btn btn-tertiary active" data-paint-tool="brush">🖌️ 笔刷</button>
+                <button class="btn btn-tertiary" data-paint-tool="eraser">🧹 橡皮</button>
                 <button class="btn btn-tertiary" data-paint-tool="rect">⬜ 矩形</button>
               </div>
             </div>
@@ -109,8 +110,12 @@
               <input type="range" id="brush-size" min="10" max="80" step="5" value="25">
             </div>
             <div class="button-group horizontal">
-              <button id="apply-zones" class="btn btn-primary">✅ 应用生成</button>
+              <button id="undo-paint" class="btn btn-tertiary">↩️ 撤销</button>
+              <button id="redo-paint" class="btn btn-tertiary">↪️ 重做</button>
               <button id="clear-zones" class="btn btn-secondary">🗑️ 清空</button>
+            </div>
+            <div class="button-group horizontal">
+              <button id="apply-zones" class="btn btn-primary btn-block">✅ 应用生成</button>
             </div>
             <div class="paint-hint">
               <small>💡 点击"开启绘制"在地图上直接画分区</small>
@@ -139,8 +144,22 @@
             <select id="weather">
               <option value="sunny">☀️ 晴天</option>
               <option value="cloudy">☁️ 阴天</option>
+              <option value="foggy">🌫️ 雾天</option>
               <option value="rainy">🌧️ 雨夜</option>
             </select>
+          </div>
+          <div class="control">
+            <label>快速氛围</label>
+            <div class="atmosphere-presets" id="atmosphere-presets">
+              <button class="btn btn-mini" data-atmosphere="sunny-noon">☀️ 正午</button>
+              <button class="btn btn-mini" data-atmosphere="sunny-sunset">🌇 日落</button>
+              <button class="btn btn-mini" data-atmosphere="cloudy-morning">☁️ 上午</button>
+              <button class="btn btn-mini" data-atmosphere="cloudy-dusk">🌆 傍晚</button>
+              <button class="btn btn-mini" data-atmosphere="foggy-dawn">🌫️ 清晨</button>
+              <button class="btn btn-mini" data-atmosphere="foggy-day">🌁 浓雾</button>
+              <button class="btn btn-mini" data-atmosphere="sunny-night">🌙 晴夜</button>
+              <button class="btn btn-mini" data-atmosphere="rainy-night">🌧️ 雨夜</button>
+            </div>
           </div>
         </div>
         
@@ -153,6 +172,16 @@
               <option value="street">街道漫游</option>
               <option value="flight">飞行模式</option>
             </select>
+          </div>
+          <div class="control" id="autofollow-control" style="display:none;">
+            <label>自动跟随主干道</label>
+            <div class="button-group horizontal">
+              <button id="toggle-autofollow" class="btn btn-tertiary">▶️ 开启</button>
+            </div>
+          </div>
+          <div class="control" id="autofollow-speed-control" style="display:none;">
+            <label>跟随速度: <span id="autofollow-speed-value">30</span></label>
+            <input type="range" id="autofollow-speed" min="10" max="120" step="5" value="30">
           </div>
         </div>
         
@@ -172,6 +201,32 @@
             <button id="save-preset" class="btn btn-secondary">💾 保存</button>
             <button id="load-preset" class="btn btn-secondary">📂 载入</button>
             <button id="delete-preset" class="btn btn-secondary">🗑️ 删除</button>
+          </div>
+          <div class="preset-switcher" id="preset-switcher"></div>
+        </div>
+        
+        <div class="section" id="compare-section" style="display:none;">
+          <h3>🔄 方案对比</h3>
+          <div class="control">
+            <label>对比模式</label>
+            <div class="button-group horizontal">
+              <button id="toggle-compare" class="btn btn-tertiary">▶️ 开启轮播</button>
+            </div>
+          </div>
+          <div class="control">
+            <label>轮播间隔: <span id="compare-interval-value">5</span> 秒</label>
+            <input type="range" id="compare-interval" min="2" max="30" step="1" value="5">
+          </div>
+          <div class="control">
+            <label>对比方案列表</label>
+            <div id="compare-list" class="compare-list">
+              <small class="hint">点击下方方案标签加入对比</small>
+            </div>
+          </div>
+          <div class="button-group horizontal">
+            <button id="compare-prev" class="btn btn-tertiary">⬅️ 上一个</button>
+            <span id="compare-status" class="compare-status">0 / 0</span>
+            <button id="compare-next" class="btn btn-tertiary">下一个 ➡️</button>
           </div>
         </div>
         

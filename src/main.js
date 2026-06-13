@@ -3,6 +3,7 @@ import { SceneManager } from './core/SceneManager.js';
 import { CameraController, CAMERA_MODES } from './core/CameraController.js';
 import { TimeSystem } from './core/TimeSystem.js';
 import { WeatherSystem } from './core/WeatherSystem.js';
+import { ATMOSPHERE_PRESETS } from './core/WeatherSystem.js';
 import { RoadGenerator } from './city/RoadGenerator.js';
 import { BuildingGenerator } from './city/BuildingGenerator.js';
 import { TrafficGenerator } from './city/TrafficGenerator.js';
@@ -40,6 +41,7 @@ class CityApp {
     this.weatherSystem.setWeather(this.ui.params.weather, false);
     
     this.zonePainter = new ZonePainter(this.ui.params.mapSize);
+    this.zonePainter.setCamera(this.sceneManager.camera);
     this.zonePainter.onChange(() => {});
     
     this.applyWeatherToMaterials();
@@ -128,6 +130,8 @@ class CityApp {
           }));
         }
         
+        this.cameraController.setRoadPaths(roadPaths);
+        
         this.trafficGen = new TrafficGenerator(params.mapSize);
         this.trafficGen.setTimeOfDay(params.timeOfDay);
         this.trafficGen.setNightFactor(this.timeSystem.nightFactor);
@@ -176,6 +180,24 @@ class CityApp {
     this.applyWeatherToMaterials();
   }
   
+  applyAtmospherePreset(presetKey) {
+    const preset = ATMOSPHERE_PRESETS[presetKey];
+    if (!preset) return;
+    
+    this.weatherSystem.setWeather(preset.weather, true);
+    this.timeSystem.setTime(preset.time);
+    this.ui.params.weather = preset.weather;
+    this.ui.params.timeOfDay = preset.time;
+    
+    if (this.trafficGen) {
+      this.trafficGen.setTimeOfDay(preset.time);
+    }
+    
+    this.applyTimeAndWeather();
+    this.applyWeatherToMaterials();
+    this.ui.updateUI();
+  }
+  
   applyTimeAndWeather() {
     const nightFactor = this.timeSystem.nightFactor;
     const weatherBoost = this.weatherSystem.getLightBoost();
@@ -202,6 +224,32 @@ class CityApp {
   setPaintMode(active) {
     if (this.zonePainter) {
       this.zonePainter.setActive(active);
+    }
+  }
+  
+  undoPaint() {
+    if (this.zonePainter) {
+      return this.zonePainter.undo();
+    }
+    return false;
+  }
+  
+  redoPaint() {
+    if (this.zonePainter) {
+      return this.zonePainter.redo();
+    }
+    return false;
+  }
+  
+  setAutoFollow(enabled) {
+    if (this.cameraController) {
+      this.cameraController.setAutoFollow(enabled);
+    }
+  }
+  
+  setAutoFollowSpeed(speed) {
+    if (this.cameraController) {
+      this.cameraController.setAutoFollowSpeed(speed);
     }
   }
   
@@ -341,6 +389,10 @@ class CityApp {
     
     if (this.trafficGen) {
       this.trafficGen.update(deltaTime);
+    }
+    
+    if (this.zonePainter && this.zonePainter.isActive) {
+      this.zonePainter.render();
     }
     
     this.sceneManager.render();

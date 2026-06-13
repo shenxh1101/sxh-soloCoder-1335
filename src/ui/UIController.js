@@ -30,6 +30,16 @@ class UIController {
     this.paintZone = 'commercial';
     this.brushSize = 25;
     
+    this.autoFollowActive = false;
+    this.autoFollowSpeed = 30;
+    
+    this.compareMode = false;
+    this.comparePresets = [];
+    this.compareIndex = 0;
+    this.autoPlay = false;
+    this.autoPlayInterval = 5;
+    this.autoPlayTimer = null;
+    
     this.regeneratePending = false;
     this.regenerateScheduled = false;
     this.regenerateDebounceTimer = null;
@@ -79,19 +89,37 @@ class UIController {
       applyZones: document.getElementById('apply-zones'),
       clearZones: document.getElementById('clear-zones'),
       togglePaintMode: document.getElementById('toggle-paint-mode'),
+      undoPaint: document.getElementById('undo-paint'),
+      redoPaint: document.getElementById('redo-paint'),
       
       timeOfDay: document.getElementById('time-of-day'),
       timeValue: document.getElementById('time-value'),
       
       weather: document.getElementById('weather'),
+      atmospherePresets: document.getElementById('atmosphere-presets'),
       
       cameraMode: document.getElementById('camera-mode'),
+      autofollowControl: document.getElementById('autofollow-control'),
+      autofollowSpeedControl: document.getElementById('autofollow-speed-control'),
+      autofollowSpeed: document.getElementById('autofollow-speed'),
+      autofollowSpeedValue: document.getElementById('autofollow-speed-value'),
+      toggleAutofollow: document.getElementById('toggle-autofollow'),
       
       presetName: document.getElementById('preset-name'),
       presetList: document.getElementById('preset-list'),
       savePreset: document.getElementById('save-preset'),
       loadPreset: document.getElementById('load-preset'),
       deletePreset: document.getElementById('delete-preset'),
+      presetSwitcher: document.getElementById('preset-switcher'),
+      
+      compareSection: document.getElementById('compare-section'),
+      toggleCompare: document.getElementById('toggle-compare'),
+      compareInterval: document.getElementById('compare-interval'),
+      compareIntervalValue: document.getElementById('compare-interval-value'),
+      compareList: document.getElementById('compare-list'),
+      comparePrev: document.getElementById('compare-prev'),
+      compareNext: document.getElementById('compare-next'),
+      compareStatus: document.getElementById('compare-status'),
       
       regenerate: document.getElementById('regenerate'),
       exportImage: document.getElementById('export-image'),
@@ -196,6 +224,14 @@ class UIController {
       }
     });
     
+    this.elements.undoPaint.addEventListener('click', () => {
+      this.app.undoPaint();
+    });
+    
+    this.elements.redoPaint.addEventListener('click', () => {
+      this.app.redoPaint();
+    });
+    
     this.elements.weather.addEventListener('change', (e) => {
       this.params.weather = e.target.value;
       if (this.app.onWeatherChange) {
@@ -203,9 +239,60 @@ class UIController {
       }
     });
     
+    const atmosphereBtns = this.elements.atmospherePresets.querySelectorAll('[data-atmosphere]');
+    atmosphereBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.atmosphere;
+        if (this.app.applyAtmospherePreset) {
+          this.app.applyAtmospherePreset(key);
+        }
+        atmosphereBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+    
     this.elements.cameraMode.addEventListener('change', (e) => {
       this.params.cameraMode = e.target.value;
       this.app.setCameraMode(e.target.value);
+      this.updateAutofollowVisibility();
+      if (e.target.value !== 'street') {
+        this.setAutoFollow(false);
+      }
+    });
+    
+    this.elements.toggleAutofollow.addEventListener('click', () => {
+      this.setAutoFollow(!this.autoFollowActive);
+    });
+    
+    this.elements.autofollowSpeed.addEventListener('input', (e) => {
+      this.autoFollowSpeed = parseInt(e.target.value);
+      this.elements.autofollowSpeedValue.textContent = this.autoFollowSpeed;
+      this.app.setAutoFollowSpeed(this.autoFollowSpeed);
+    });
+    
+    this.elements.toggleCompare.addEventListener('click', () => {
+      if (!this.autoPlay) {
+        this.startAutoPlay();
+      } else {
+        this.stopAutoPlay();
+      }
+    });
+    
+    this.elements.comparePrev.addEventListener('click', () => {
+      this.prevComparePreset();
+    });
+    
+    this.elements.compareNext.addEventListener('click', () => {
+      this.nextComparePreset();
+    });
+    
+    this.elements.compareInterval.addEventListener('input', (e) => {
+      this.autoPlayInterval = parseInt(e.target.value);
+      this.elements.compareIntervalValue.textContent = this.autoPlayInterval;
+      if (this.autoPlay) {
+        this.stopAutoPlay();
+        this.startAutoPlay();
+      }
     });
     
     this.elements.savePreset.addEventListener('click', () => this.saveCurrentPreset());
@@ -229,6 +316,20 @@ class UIController {
     const isPaint = this.params.zonePreset === 'paint';
     this.elements.zoneSliders.style.display = isPaint ? 'none' : 'block';
     this.elements.zonePaintTools.style.display = isPaint ? 'block' : 'none';
+  }
+  
+  updateAutofollowVisibility() {
+    const isStreet = this.params.cameraMode === 'street';
+    this.elements.autofollowControl.style.display = isStreet ? 'block' : 'none';
+    this.elements.autofollowSpeedControl.style.display = isStreet && this.autoFollowActive ? 'block' : 'none';
+  }
+  
+  setAutoFollow(enabled) {
+    this.autoFollowActive = enabled;
+    this.app.setAutoFollow(enabled);
+    this.elements.toggleAutofollow.textContent = enabled ? '⏸️ 暂停' : '▶️ 开启';
+    this.elements.toggleAutofollow.classList.toggle('active', enabled);
+    this.elements.autofollowSpeedControl.style.display = enabled ? 'block' : 'none';
   }
   
   applyZonePreset(presetName) {
@@ -407,17 +508,13 @@ class UIController {
   }
   
   refreshPresetChips() {
-    let container = document.getElementById('preset-chips');
-    if (!container) {
-      container = document.createElement('div');
-      container.id = 'preset-chips';
-      container.className = 'preset-switcher';
-      const section = this.elements.presetList.closest('.section');
-      section.appendChild(container);
-    }
+    const container = this.elements.presetSwitcher;
+    if (!container) return;
     
     container.innerHTML = '';
     const names = Object.keys(this.presets).sort().slice(0, 8);
+    
+    if (names.length === 0) return;
     
     for (const name of names) {
       const chip = document.createElement('span');
@@ -425,11 +522,134 @@ class UIController {
       if (name === this.currentPresetName) {
         chip.classList.add('active');
       }
+      if (this.comparePresets.includes(name)) {
+        chip.classList.add('compare-mode');
+      }
       chip.textContent = name;
-      chip.addEventListener('click', () => {
-        this.loadPresetByName(name);
+      chip.addEventListener('click', (e) => {
+        if (e.shiftKey || this.compareMode) {
+          this.toggleComparePreset(name);
+        } else {
+          this.loadPresetByName(name);
+        }
+      });
+      chip.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this.toggleComparePreset(name);
       });
       container.appendChild(chip);
+    }
+    
+    if (names.length > 0 && this.comparePresets.length === 0) {
+      const hint = document.createElement('small');
+      hint.style.cssText = 'color: #606078; font-size: 10px; margin-top: 4px; display: block; width: 100%;';
+      hint.textContent = '💡 Shift+点击或右键加入对比';
+      container.appendChild(hint);
+    }
+    
+    this.updateCompareSectionVisibility();
+  }
+  
+  toggleComparePreset(name) {
+    const idx = this.comparePresets.indexOf(name);
+    if (idx >= 0) {
+      this.comparePresets.splice(idx, 1);
+    } else {
+      if (this.comparePresets.length < 5) {
+        this.comparePresets.push(name);
+      }
+    }
+    this.refreshPresetChips();
+    this.refreshCompareList();
+    this.updateCompareStatus();
+  }
+  
+  refreshCompareList() {
+    const list = this.elements.compareList;
+    if (!list) return;
+    
+    if (this.comparePresets.length === 0) {
+      list.innerHTML = '<small class="hint">点击上方方案标签加入对比（Shift+点击）</small>';
+      return;
+    }
+    
+    list.innerHTML = '';
+    for (const name of this.comparePresets) {
+      const chip = document.createElement('span');
+      chip.className = 'compare-chip';
+      chip.innerHTML = `${name} <span class="remove-icon">✕</span>`;
+      chip.addEventListener('click', () => {
+        this.toggleComparePreset(name);
+      });
+      list.appendChild(chip);
+    }
+  }
+  
+  updateCompareSectionVisibility() {
+    const section = this.elements.compareSection;
+    if (!section) return;
+    section.style.display = this.comparePresets.length >= 2 ? 'block' : 'none';
+  }
+  
+  updateCompareStatus() {
+    const status = this.elements.compareStatus;
+    if (!status) return;
+    if (this.comparePresets.length === 0) {
+      status.textContent = '0 / 0';
+    } else {
+      const displayIdx = this.compareIndex < this.comparePresets.length ? this.compareIndex + 1 : 1;
+      status.textContent = `${displayIdx} / ${this.comparePresets.length}`;
+    }
+  }
+  
+  nextComparePreset() {
+    if (this.comparePresets.length < 2) return;
+    this.compareIndex = (this.compareIndex + 1) % this.comparePresets.length;
+    this.loadComparePreset();
+  }
+  
+  prevComparePreset() {
+    if (this.comparePresets.length < 2) return;
+    this.compareIndex = (this.compareIndex - 1 + this.comparePresets.length) % this.comparePresets.length;
+    this.loadComparePreset();
+  }
+  
+  loadComparePreset() {
+    const name = this.comparePresets[this.compareIndex];
+    if (name && this.presets[name]) {
+      this.loadPresetByName(name);
+    }
+    this.updateCompareStatus();
+  }
+  
+  startAutoPlay() {
+    if (this.comparePresets.length < 2) return;
+    
+    this.autoPlay = true;
+    this.compareMode = true;
+    this.elements.toggleCompare.textContent = '⏸️ 暂停轮播';
+    this.elements.toggleCompare.classList.add('active');
+    
+    if (this.compareIndex >= this.comparePresets.length) {
+      this.compareIndex = 0;
+      this.loadComparePreset();
+    }
+    
+    this.autoPlayTimer = setInterval(() => {
+      this.nextComparePreset();
+    }, this.autoPlayInterval * 1000);
+    
+    this.refreshPresetChips();
+  }
+  
+  stopAutoPlay() {
+    this.autoPlay = false;
+    this.elements.toggleCompare.textContent = '▶️ 开启轮播';
+    this.elements.toggleCompare.classList.remove('active');
+    
+    if (this.autoPlayTimer) {
+      clearInterval(this.autoPlayTimer);
+      this.autoPlayTimer = null;
     }
   }
   
@@ -488,6 +708,17 @@ class UIController {
     delete this.presets[name];
     this.savePresetsToStorage();
     
+    const compareIdx = this.comparePresets.indexOf(name);
+    if (compareIdx >= 0) {
+      this.comparePresets.splice(compareIdx, 1);
+      if (this.compareIndex >= this.comparePresets.length) {
+        this.compareIndex = Math.max(0, this.comparePresets.length - 1);
+      }
+      if (this.comparePresets.length < 2 && this.autoPlay) {
+        this.stopAutoPlay();
+      }
+    }
+    
     if (this.currentPresetName === name) {
       this.currentPresetName = '';
       this.clearLastPresetName();
@@ -495,6 +726,9 @@ class UIController {
     
     this.refreshPresetList();
     this.refreshPresetChips();
+    this.refreshCompareList();
+    this.updateCompareStatus();
+    this.updateCompareSectionVisibility();
   }
   
   setCurrentPresetName(name) {
@@ -545,6 +779,8 @@ class UIController {
     
     this.elements.zonePreset.value = this.params.zonePreset || 'auto';
     this.syncZoneUI();
+    
+    this.updateAutofollowVisibility();
   }
   
   showLoading() {

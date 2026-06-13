@@ -473,3 +473,101 @@ input[type="text"]::placeholder {
   color: #6a9fff;
   border-color: rgba(106, 159, 255, 0.4);
 }
+
+.btn-mini {
+  padding: 5px 9px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #a0a0b0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-weight: 500;
+}
+
+.btn-mini:hover {
+  background: rgba(106, 159, 255, 0.15);
+  color: #8ab4ff;
+  border-color: rgba(106, 159, 255, 0.3);
+}
+
+.btn-mini.active {
+  background: rgba(106, 159, 255, 0.25);
+  color: #6a9fff;
+  border-color: rgba(106, 159, 255, 0.5);
+}
+
+.atmosphere-presets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.compare-list {
+  min-height: 40px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.compare-list .hint {
+  color: #606078;
+  font-size: 11px;
+}
+
+.compare-chip {
+  padding: 3px 8px;
+  background: rgba(106, 159, 255, 0.15);
+  border: 1px solid rgba(106, 159, 255, 0.3);
+  border-radius: 10px;
+  font-size: 11px;
+  color: #8ab4ff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.compare-chip:hover {
+  background: rgba(255, 100, 100, 0.15);
+  border-color: rgba(255, 100, 100, 0.4);
+  color: #ff8080;
+}
+
+.compare-chip .remove-icon {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.compare-status {
+  flex: 1;
+  text-align: center;
+  font-size: 12px;
+  color: #8ab4ff;
+  font-weight: 600;
+  align-self: center;
+}
+
+.preset-chip.compare-mode {
+  position: relative;
+}
+
+.preset-chip.compare-mode::after {
+  content: '✓';
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 14px;
+  height: 14px;
+  background: #6a9fff;
+  color: white;
+  border-radius: 50%;
+  font-size: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
