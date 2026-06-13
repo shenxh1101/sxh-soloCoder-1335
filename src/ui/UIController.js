@@ -1,4 +1,4 @@
-import { formatTime } from '../utils/helpers.js';
+import { formatTime, clamp } from '../utils/helpers.js';
 
 class UIController {
   constructor(app) {
@@ -13,6 +13,11 @@ class UIController {
       timeOfDay: 12,
       cameraMode: 'overview'
     };
+    
+    this.regeneratePending = false;
+    this.regenerateScheduled = false;
+    this.regenerateDebounceTimer = null;
+    this.HEIGHT_GAP = 5;
     
     this.bindElements();
     this.bindEvents();
@@ -60,17 +65,18 @@ class UIController {
       this.elements.togglePanel.textContent = this.elements.uiPanel.classList.contains('collapsed') ? '»' : '—';
     });
     
-    this.bindSlider('mapSize', 'mapSizeValue', v => parseInt(v), false);
-    this.bindSlider('density', 'densityValue', v => parseFloat(v).toFixed(2), false);
-    this.bindSlider('waterRatio', 'waterRatioValue', v => parseFloat(v).toFixed(2), false);
-    this.bindSlider('minHeight', 'minHeightValue', v => parseInt(v), false);
-    this.bindSlider('maxHeight', 'maxHeightValue', v => parseInt(v), false);
+    this.bindRealTimeSlider('mapSize', 'mapSizeValue', v => parseInt(v));
+    this.bindRealTimeSlider('density', 'densityValue', v => parseFloat(v).toFixed(2));
+    this.bindRealTimeSlider('waterRatio', 'waterRatioValue', v => parseFloat(v).toFixed(2));
+    
+    this.bindHeightSlider('minHeight', 'minHeightValue', v => parseInt(v));
+    this.bindHeightSlider('maxHeight', 'maxHeightValue', v => parseInt(v));
     
     this.bindSlider('timeOfDay', 'timeValue', v => formatTime(parseFloat(v)), true);
     
     this.elements.roadType.addEventListener('change', (e) => {
       this.params.roadType = e.target.value;
-      this.debouncedRegenerate();
+      this.scheduleRegenerate();
     });
     
     this.elements.cameraMode.addEventListener('change', (e) => {
@@ -79,7 +85,7 @@ class UIController {
     });
     
     this.elements.regenerate.addEventListener('click', () => {
-      this.app.regenerateCity();
+      this.forceRegenerate();
     });
     
     this.elements.exportImage.addEventListener('click', () => {
@@ -88,6 +94,53 @@ class UIController {
     
     this.elements.exportJson.addEventListener('click', () => {
       this.app.exportJSON();
+    });
+  }
+  
+  bindRealTimeSlider(paramName, valueId, formatFn) {
+    const slider = this.elements[paramName];
+    const valueEl = this.elements[valueId];
+    
+    slider.addEventListener('input', (e) => {
+      const value = e.target.value;
+      const parsedValue = ['density', 'waterRatio'].includes(paramName) ? parseFloat(value) : parseInt(value);
+      this.params[paramName] = parsedValue;
+      valueEl.textContent = formatFn(value);
+      this.scheduleRegenerate();
+    });
+  }
+  
+  bindHeightSlider(paramName, valueId, formatFn) {
+    const slider = this.elements[paramName];
+    const valueEl = this.elements[valueId];
+    
+    slider.addEventListener('input', (e) => {
+      const value = parseInt(e.target.value);
+      
+      if (paramName === 'minHeight') {
+        if (value >= this.params.maxHeight) {
+          this.params.minHeight = clamp(value, 5, this.params.maxHeight - this.HEIGHT_GAP);
+          slider.value = this.params.minHeight;
+          this.params.maxHeight = Math.max(this.params.minHeight + this.HEIGHT_GAP, this.params.maxHeight);
+          this.elements.maxHeight.value = this.params.maxHeight;
+          this.elements.maxHeightValue.textContent = this.params.maxHeight;
+        } else {
+          this.params.minHeight = value;
+        }
+      } else if (paramName === 'maxHeight') {
+        if (value <= this.params.minHeight) {
+          this.params.maxHeight = clamp(value, this.params.minHeight + this.HEIGHT_GAP, 200);
+          slider.value = this.params.maxHeight;
+          this.params.minHeight = Math.min(this.params.maxHeight - this.HEIGHT_GAP, this.params.minHeight);
+          this.elements.minHeight.value = this.params.minHeight;
+          this.elements.minHeightValue.textContent = this.params.minHeight;
+        } else {
+          this.params.maxHeight = value;
+        }
+      }
+      
+      valueEl.textContent = formatFn(slider.value);
+      this.scheduleRegenerate();
     });
   }
   
@@ -108,16 +161,48 @@ class UIController {
     
     slider.addEventListener('change', () => {
       if (!immediate) {
-        this.debouncedRegenerate();
+        this.scheduleRegenerate();
       }
     });
   }
   
-  debouncedRegenerate() {
-    if (this.regenerateTimeout) clearTimeout(this.regenerateTimeout);
-    this.regenerateTimeout = setTimeout(() => {
-      this.app.regenerateCity();
-    }, 300);
+  scheduleRegenerate() {
+    if (this.regenerateDebounceTimer) {
+      clearTimeout(this.regenerateDebounceTimer);
+    }
+    
+    this.regenerateDebounceTimer = setTimeout(() => {
+      if (this.regeneratePending) {
+        this.regenerateScheduled = true;
+        return;
+      }
+      
+      this.executeRegenerate();
+    }, 150);
+  }
+  
+  async executeRegenerate() {
+    this.regeneratePending = true;
+    this.regenerateScheduled = false;
+    
+    try {
+      await this.app.regenerateCity();
+    } finally {
+      this.regeneratePending = false;
+      
+      if (this.regenerateScheduled) {
+        this.regenerateScheduled = false;
+        setTimeout(() => this.executeRegenerate(), 50);
+      }
+    }
+  }
+  
+  forceRegenerate() {
+    if (this.regenerateDebounceTimer) {
+      clearTimeout(this.regenerateDebounceTimer);
+    }
+    this.regenerateScheduled = false;
+    this.executeRegenerate();
   }
   
   updateUI() {

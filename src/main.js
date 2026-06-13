@@ -4,6 +4,7 @@ import { CameraController, CAMERA_MODES } from './core/CameraController.js';
 import { TimeSystem } from './core/TimeSystem.js';
 import { RoadGenerator } from './city/RoadGenerator.js';
 import { BuildingGenerator } from './city/BuildingGenerator.js';
+import { TrafficGenerator } from './city/TrafficGenerator.js';
 import { UIController } from './ui/UIController.js';
 import { downloadBlob } from './utils/helpers.js';
 
@@ -30,61 +31,84 @@ class CityApp {
   }
   
   generateCity() {
-    this.ui.showLoading();
-    
-    setTimeout(() => {
-      const params = this.ui.getParams();
-      const seed = Date.now() % 100000;
+    return new Promise((resolve) => {
+      this.ui.showLoading();
       
-      this.sceneManager.clearCity();
+      if (this.regenerateTimeout) clearTimeout(this.regenerateTimeout);
       
-      const roadGen = new RoadGenerator({
-        mapSize: params.mapSize,
-        roadType: params.roadType,
-        seed
-      });
-      const roadData = roadGen.generate();
-      
-      this.buildingGen = new BuildingGenerator({
-        mapSize: params.mapSize,
-        density: params.density,
-        minHeight: params.minHeight,
-        maxHeight: params.maxHeight,
-        waterRatio: params.waterRatio,
-        seed
-      });
-      
-      const buildingData = this.buildingGen.generate(roadData.plots);
-      
-      const ground = this.buildingGen.createGround();
-      this.sceneManager.cityGroup.add(ground);
-      
-      const water = this.buildingGen.createWater();
-      if (water) this.sceneManager.cityGroup.add(water);
-      
-      const roads = roadGen.createRoadMeshes();
-      this.sceneManager.cityGroup.add(roads);
-      
-      const buildings = this.buildingGen.createInstancedBuildings(buildingData.zoneBuildings);
-      this.sceneManager.cityGroup.add(buildings);
-      
-      const streetLights = this.buildingGen.createStreetLightMeshes();
-      this.sceneManager.cityGroup.add(streetLights);
-      
-      this.cameraController.setMapSize(params.mapSize);
-      
-      const nightFactor = this.timeSystem.setTime(params.timeOfDay);
-      this.buildingGen.setNightEmissiveIntensity(nightFactor * 1.5);
-      this.buildingGen.setStreetLightIntensity(nightFactor);
-      
-      this.ui.updateBuildingCount(this.buildingGen.getBuildingCount());
-      
-      this.ui.hideLoading();
-    }, 50);
+      this.regenerateTimeout = setTimeout(() => {
+        const params = this.ui.getParams();
+        const seed = Date.now() % 100000;
+        
+        this.sceneManager.clearCity();
+        
+        if (this.trafficGen) {
+          this.trafficGen.dispose();
+        }
+        
+        const roadGen = new RoadGenerator({
+          mapSize: params.mapSize,
+          roadType: params.roadType,
+          seed
+        });
+        const roadData = roadGen.generate();
+        
+        this.buildingGen = new BuildingGenerator({
+          mapSize: params.mapSize,
+          density: params.density,
+          minHeight: params.minHeight,
+          maxHeight: params.maxHeight,
+          waterRatio: params.waterRatio,
+          seed
+        });
+        
+        const buildingData = this.buildingGen.generate(roadData.plots);
+        
+        const ground = this.buildingGen.createGround();
+        this.sceneManager.cityGroup.add(ground);
+        
+        const water = this.buildingGen.createWater();
+        if (water) this.sceneManager.cityGroup.add(water);
+        
+        const roads = roadGen.createRoadMeshes();
+        this.sceneManager.cityGroup.add(roads);
+        
+        const buildings = this.buildingGen.createInstancedBuildings(buildingData.zoneBuildings);
+        this.sceneManager.cityGroup.add(buildings);
+        
+        const streetLights = this.buildingGen.createStreetLightMeshes();
+        this.sceneManager.cityGroup.add(streetLights);
+        
+        let roadPaths = roadData.curvedRoadPaths || [];
+        if (roadPaths.length === 0) {
+          roadPaths = roadData.roadSegments.map(seg => ({
+            points: [seg.start, seg.end],
+            width: seg.width,
+            isMajor: seg.isMajor
+          }));
+        }
+        
+        this.trafficGen = new TrafficGenerator(params.mapSize);
+        const traffic = this.trafficGen.generate(roadPaths);
+        this.sceneManager.cityGroup.add(traffic);
+        
+        this.cameraController.setMapSize(params.mapSize);
+        
+        const nightFactor = this.timeSystem.setTime(params.timeOfDay);
+        this.buildingGen.setNightEmissiveIntensity(nightFactor * 1.5);
+        this.buildingGen.setStreetLightIntensity(nightFactor);
+        this.trafficGen.setNightFactor(nightFactor);
+        
+        this.ui.updateBuildingCount(this.buildingGen.getBuildingCount());
+        
+        this.ui.hideLoading();
+        resolve();
+      }, 50);
+    });
   }
   
   regenerateCity() {
-    this.generateCity();
+    return this.generateCity();
   }
   
   setCameraMode(mode) {
@@ -96,6 +120,9 @@ class CityApp {
     if (this.buildingGen) {
       this.buildingGen.setNightEmissiveIntensity(nightFactor * 1.5);
       this.buildingGen.setStreetLightIntensity(nightFactor);
+    }
+    if (this.trafficGen) {
+      this.trafficGen.setNightFactor(nightFactor);
     }
   }
   
@@ -149,6 +176,10 @@ class CityApp {
     }
     
     this.cameraController.update(deltaTime);
+    
+    if (this.trafficGen) {
+      this.trafficGen.update(deltaTime);
+    }
     
     this.sceneManager.render();
   }

@@ -96,23 +96,24 @@ class BuildingGenerator {
     let heightMultiplier = 1;
     switch (plot.zone) {
       case 'commercial':
-        heightMultiplier = 1.5 + distFactor * 0.8;
+        heightMultiplier = 0.7 + distFactor * 0.3;
         break;
       case 'residential':
-        heightMultiplier = 0.4 + distFactor * 0.3;
+        heightMultiplier = 0.1 + distFactor * 0.25;
         break;
       case 'industrial':
-        heightMultiplier = 0.5 + Math.random() * 0.5;
+        heightMultiplier = 0.2 + Math.random() * 0.5;
         break;
     }
     
-    const noiseFactor = 0.8 + this.noise.fbm(plot.x * 0.02, plot.z * 0.02, 3) * 0.4;
+    const noiseFactor = 0.7 + this.noise.fbm(plot.x * 0.02, plot.z * 0.02, 3) * 0.3;
     const randomFactor = 0.7 + Math.random() * 0.6;
     
-    const height = this.minHeight + 
-      (this.maxHeight - this.minHeight) * heightMultiplier * noiseFactor * randomFactor * 0.5;
+    const range = this.maxHeight - this.minHeight;
+    const relativeHeight = range * heightMultiplier * noiseFactor * randomFactor;
+    const height = this.minHeight + Math.min(relativeHeight, range);
     
-    return clamp(height, this.minHeight * 0.5, this.maxHeight);
+    return clamp(height, this.minHeight, this.maxHeight);
   }
   
   createWaterMask() {

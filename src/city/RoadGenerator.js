@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { SimplexNoise } from '../utils/Noise.js';
-import { randomRange } from '../utils/helpers.js';
+import { randomRange, randomInt } from '../utils/helpers.js';
 
 const ROAD_TYPES = {
   GRID: 'grid',
@@ -24,6 +24,7 @@ class RoadGenerator {
     this.plots = [];
     this.roads = [];
     this.roadSegments = [];
+    this.curvedRoadPaths = [];
     
     switch (this.roadType) {
       case ROAD_TYPES.GRID:
@@ -38,46 +39,51 @@ class RoadGenerator {
     }
     
     this.generatePlots();
-    return { roads: this.roads, roadSegments: this.roadSegments, plots: this.plots };
+    return { 
+      roads: this.roads, 
+      roadSegments: this.roadSegments, 
+      plots: this.plots,
+      curvedRoadPaths: this.curvedRoadPaths
+    };
   }
   
   generateGridRoads() {
     for (let x = -this.halfMap; x <= this.halfMap; x += this.majorRoadSpacing) {
-      this.roadSegments.push({
-        start: { x, z: -this.halfMap },
-        end: { x, z: this.halfMap },
-        width: this.roadWidth,
-        isMajor: true
-      });
+      this.addRoadSegment(
+        { x, z: -this.halfMap },
+        { x, z: this.halfMap },
+        this.roadWidth,
+        true
+      );
     }
     for (let z = -this.halfMap; z <= this.halfMap; z += this.majorRoadSpacing) {
-      this.roadSegments.push({
-        start: { x: -this.halfMap, z },
-        end: { x: this.halfMap, z },
-        width: this.roadWidth,
-        isMajor: true
-      });
+      this.addRoadSegment(
+        { x: -this.halfMap, z },
+        { x: this.halfMap, z },
+        this.roadWidth,
+        true
+      );
     }
     
     for (let x = -this.halfMap + this.minorRoadSpacing; x < this.halfMap; x += this.minorRoadSpacing) {
       if (Math.abs(x % this.majorRoadSpacing) < 1) continue;
       const jitter = this.noise.noise2D(x * 0.01, 0) * 2;
-      this.roadSegments.push({
-        start: { x: x + jitter, z: -this.halfMap },
-        end: { x: x + jitter, z: this.halfMap },
-        width: this.minorRoadWidth,
-        isMajor: false
-      });
+      this.addRoadSegment(
+        { x: x + jitter, z: -this.halfMap },
+        { x: x + jitter, z: this.halfMap },
+        this.minorRoadWidth,
+        false
+      );
     }
     for (let z = -this.halfMap + this.minorRoadSpacing; z < this.halfMap; z += this.minorRoadSpacing) {
       if (Math.abs(z % this.majorRoadSpacing) < 1) continue;
       const jitter = this.noise.noise2D(0, z * 0.01) * 2;
-      this.roadSegments.push({
-        start: { x: -this.halfMap, z: z + jitter },
-        end: { x: this.halfMap, z: z + jitter },
-        width: this.minorRoadWidth,
-        isMajor: false
-      });
+      this.addRoadSegment(
+        { x: -this.halfMap, z: z + jitter },
+        { x: this.halfMap, z: z + jitter },
+        this.minorRoadWidth,
+        false
+      );
     }
   }
   
@@ -87,91 +93,207 @@ class RoadGenerator {
     
     for (let i = 0; i < numRadials; i++) {
       const angle = (i / numRadials) * Math.PI * 2;
-      const jitter = this.noise.noise2D(i * 0.5, 0) * 0.05;
-      this.roadSegments.push({
-        start: { x: 0, z: 0 },
-        end: {
-          x: Math.cos(angle + jitter) * this.halfMap,
-          z: Math.sin(angle + jitter) * this.halfMap
-        },
-        width: this.roadWidth,
-        isMajor: true
-      });
+      const points = [];
+      const segments = 20;
+      
+      for (let s = 0; s <= segments; s++) {
+        const t = s / segments;
+        const radius = t * this.halfMap;
+        const jitter = this.noise.fbm(
+          Math.cos(angle) * radius * 0.008,
+          Math.sin(angle) * radius * 0.008,
+          3
+        ) * 8;
+        points.push({
+          x: Math.cos(angle) * (radius + jitter),
+          z: Math.sin(angle) * (radius + jitter)
+        });
+      }
+      
+      this.addCurvedRoad(points, this.roadWidth, true);
     }
     
     for (let r = 1; r <= numRings; r++) {
-      const radius = r * this.majorRoadSpacing;
-      if (radius > this.halfMap) break;
-      const segments = 32 + r * 4;
-      for (let i = 0; i < segments; i++) {
-        const angle1 = (i / segments) * Math.PI * 2;
-        const angle2 = ((i + 1) / segments) * Math.PI * 2;
-        const jitter1 = this.noise.noise2D(
-          Math.cos(angle1) * radius * 0.01,
-          Math.sin(angle1) * radius * 0.01
-        ) * 3;
-        const jitter2 = this.noise.noise2D(
-          Math.cos(angle2) * radius * 0.01,
-          Math.sin(angle2) * radius * 0.01
-        ) * 3;
-        this.roadSegments.push({
-          start: {
-            x: Math.cos(angle1) * (radius + jitter1),
-            z: Math.sin(angle1) * (radius + jitter1)
-          },
-          end: {
-            x: Math.cos(angle2) * (radius + jitter2),
-            z: Math.sin(angle2) * (radius + jitter2)
-          },
-          width: r % 2 === 0 ? this.roadWidth : this.minorRoadWidth,
-          isMajor: r % 2 === 0
+      const baseRadius = r * this.majorRoadSpacing;
+      if (baseRadius > this.halfMap) break;
+      
+      const isMajor = r % 2 === 0;
+      const segments = 40 + r * 4;
+      const width = isMajor ? this.roadWidth : this.minorRoadWidth;
+      
+      const ringPoints = [];
+      for (let i = 0; i <= segments; i++) {
+        const angle = (i / segments) * Math.PI * 2;
+        const jitter = this.noise.fbm(
+          Math.cos(angle) * baseRadius * 0.008,
+          Math.sin(angle) * baseRadius * 0.008,
+          3
+        ) * 5;
+        ringPoints.push({
+          x: Math.cos(angle) * (baseRadius + jitter),
+          z: Math.sin(angle) * (baseRadius + jitter)
         });
       }
+      
+      this.addCurvedRoad(ringPoints, width, isMajor);
     }
-    
-    this.generateGridRoads();
   }
   
   generateOrganicRoads() {
-    const numPoints = 80;
-    const points = [];
+    const numMainRoads = 6;
+    const mainRoadCurves = [];
     
-    for (let i = 0; i < numPoints; i++) {
-      points.push({
-        x: randomRange(-this.halfMap, this.halfMap),
-        z: randomRange(-this.halfMap, this.halfMap),
-        connections: []
-      });
-    }
-    
-    for (let i = 0; i < points.length; i++) {
-      const distances = [];
-      for (let j = 0; j < points.length; j++) {
-        if (i === j) continue;
-        const dx = points[j].x - points[i].x;
-        const dz = points[j].z - points[i].z;
-        distances.push({ j, dist: Math.sqrt(dx * dx + dz * dz) });
-      }
-      distances.sort((a, b) => a.dist - b.dist);
+    for (let i = 0; i < numMainRoads; i++) {
+      const startAngle = (i / numMainRoads) * Math.PI * 2 + Math.PI / numMainRoads;
+      const numPoints = randomInt(8, 15);
+      const curvePoints = [];
       
-      const numConnections = randomInt(2, 4);
-      for (let k = 0; k < Math.min(numConnections, distances.length); k++) {
-        const j = distances[k].j;
-        if (!points[i].connections.includes(j) && distances[k].dist < 60) {
-          points[i].connections.push(j);
-          points[j].connections.push(i);
-          
-          this.roadSegments.push({
-            start: { x: points[i].x, z: points[i].z },
-            end: { x: points[j].x, z: points[j].z },
-            width: distances[k].dist < 30 ? this.minorRoadWidth : this.roadWidth,
-            isMajor: distances[k].dist >= 30
-          });
-        }
+      let currentAngle = startAngle;
+      let currentRadius = 0;
+      
+      for (let p = 0; p < numPoints; p++) {
+        const t = p / (numPoints - 1);
+        currentRadius = t * this.halfMap * randomRange(0.9, 1.1);
+        
+        const angleJitter = this.noise.fbm(
+          Math.cos(currentAngle) * currentRadius * 0.005,
+          Math.sin(currentAngle) * currentRadius * 0.005,
+          3
+        ) * 0.8;
+        currentAngle += angleJitter;
+        
+        const radiusJitter = this.noise.fbm(
+          currentAngle * 2,
+          t * 5,
+          2
+        ) * 15;
+        
+        curvePoints.push({
+          x: Math.cos(currentAngle) * (currentRadius + radiusJitter),
+          z: Math.sin(currentAngle) * (currentRadius + radiusJitter)
+        });
+      }
+      
+      mainRoadCurves.push(curvePoints);
+      this.addCurvedRoad(curvePoints, this.roadWidth, true);
+    }
+    
+    const numSecondaryRoads = 10;
+    for (let i = 0; i < numSecondaryRoads; i++) {
+      const curvePoints = [];
+      const numPoints = randomInt(6, 10);
+      
+      const startX = randomRange(-this.halfMap * 0.7, this.halfMap * 0.7);
+      const startZ = randomRange(-this.halfMap * 0.7, this.halfMap * 0.7);
+      
+      let x = startX;
+      let z = startZ;
+      let angle = randomRange(0, Math.PI * 2);
+      
+      for (let p = 0; p < numPoints; p++) {
+        curvePoints.push({ x, z });
+        
+        const turnAmount = this.noise.fbm(x * 0.01, z * 0.01, 2) * 0.6;
+        angle += turnAmount;
+        
+        const step = randomRange(15, 25);
+        x += Math.cos(angle) * step;
+        z += Math.sin(angle) * step;
+        
+        x = Math.max(-this.halfMap * 0.95, Math.min(this.halfMap * 0.95, x));
+        z = Math.max(-this.halfMap * 0.95, Math.min(this.halfMap * 0.95, z));
+      }
+      
+      this.addCurvedRoad(curvePoints, this.minorRoadWidth, false);
+    }
+    
+    const numLocalRoads = 15;
+    for (let i = 0; i < numLocalRoads; i++) {
+      const curvePoints = [];
+      const numPoints = randomInt(5, 8);
+      
+      let x = randomRange(-this.halfMap * 0.8, this.halfMap * 0.8);
+      let z = randomRange(-this.halfMap * 0.8, this.halfMap * 0.8);
+      let angle = randomRange(0, Math.PI * 2);
+      
+      for (let p = 0; p < numPoints; p++) {
+        curvePoints.push({ x, z });
+        
+        const turnAmount = this.noise.fbm(x * 0.02, z * 0.02, 2) * 0.8;
+        angle += turnAmount;
+        
+        const step = randomRange(10, 18);
+        x += Math.cos(angle) * step;
+        z += Math.sin(angle) * step;
+        
+        x = Math.max(-this.halfMap * 0.95, Math.min(this.halfMap * 0.95, x));
+        z = Math.max(-this.halfMap * 0.95, Math.min(this.halfMap * 0.95, z));
+      }
+      
+      this.addCurvedRoad(curvePoints, this.minorRoadWidth * 0.8, false);
+    }
+  }
+  
+  addRoadSegment(start, end, width, isMajor) {
+    this.roadSegments.push({ start, end, width, isMajor });
+  }
+  
+  addCurvedRoad(points, width, isMajor) {
+    if (points.length < 2) return;
+    
+    this.curvedRoadPaths.push({ points, width, isMajor });
+    
+    const subdivided = this.subdivideCurve(points, 3);
+    
+    for (let i = 0; i < subdivided.length - 1; i++) {
+      this.addRoadSegment(
+        subdivided[i],
+        subdivided[i + 1],
+        width,
+        isMajor
+      );
+    }
+  }
+  
+  subdivideCurve(points, subdivisions = 2) {
+    if (points.length < 3) return points;
+    
+    const result = [];
+    
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[Math.max(0, i - 1)];
+      const p1 = points[i];
+      const p2 = points[Math.min(points.length - 1, i + 1)];
+      const p3 = points[Math.min(points.length - 1, i + 2)];
+      
+      for (let t = 0; t < subdivisions; t++) {
+        const tt = t / subdivisions;
+        const point = this.catmullRom(p0, p1, p2, p3, tt);
+        result.push(point);
       }
     }
     
-    this.generateGridRoads();
+    result.push(points[points.length - 1]);
+    return result;
+  }
+  
+  catmullRom(p0, p1, p2, p3, t) {
+    const t2 = t * t;
+    const t3 = t2 * t;
+    
+    const v0x = (p2.x - p0.x) * 0.5;
+    const v0z = (p2.z - p0.z) * 0.5;
+    const v1x = (p3.x - p1.x) * 0.5;
+    const v1z = (p3.z - p1.z) * 0.5;
+    
+    return {
+      x: (2 * p1.x - 2 * p2.x + v0x + v1x) * t3 +
+       (-3 * p1.x + 3 * p2.x - 2 * v0x - v1x) * t2 +
+       v0x * t + p1.x,
+      z: (2 * p1.z - 2 * p2.z + v0z + v1z) * t3 +
+       (-3 * p1.z + 3 * p2.z - 2 * v0z - v1z) * t2 +
+       v0z * t + p1.z
+    };
   }
   
   generatePlots() {
@@ -287,10 +409,24 @@ class RoadGenerator {
     
     return group;
   }
+  
+  getCurvedRoadPaths() {
+    return this.curvedRoadPaths || [];
+  }
+  
+  getMajorRoadSegments() {
+    return this.roadSegments.filter(s => s.isMajor);
+  }
+  
+  getAllRoadPoints() {
+    const allPoints = [];
+    for (const path of this.curvedRoadPaths || []) {
+      for (const p of path.points) {
+        allPoints.push({ ...p, isMajor: path.isMajor, width: path.width });
+      }
+    }
+    return allPoints;
+  }
 }
 
 export { RoadGenerator, ROAD_TYPES };
-
-function randomInt(min, max) {
-  return Math.floor(min + Math.random() * (max - min + 1));
-}
